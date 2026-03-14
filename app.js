@@ -1,22 +1,8 @@
 'use strict';
 /* ============================================================
-   RCN Offers Analyzer – Bieżanów-Prokocim, Kraków
+   RCN App – sidebar UI, detail panel, charts modal
+   No tabs – map is always full-screen primary view
    ============================================================ */
-
-// ── Columns ───────────────────────────────────────────────────
-const COLUMNS = [
-  { key: 'data_transakcji',  label: 'Data transakcji' },
-  { key: 'rodzaj',           label: 'Rodzaj' },
-  { key: 'ulica',            label: 'Ulica' },
-  { key: 'numer_dzialki',    label: 'Nr działki' },
-  { key: 'powierzchnia_m2',  label: 'Pow. m²',       num: true },
-  { key: 'cena',             label: 'Cena PLN',       num: true, currency: true },
-  { key: 'cena_za_m2',       label: 'Cena/m² PLN',   num: true, currency: true },
-  { key: 'nabywca_typ',      label: 'Nabywca' },
-  { key: 'forma_nabycia',    label: 'Forma nabycia' },
-  { key: 'numer_repo',       label: 'Nr repozytorium' },
-  { key: 'KW',               label: 'Nr KW' },
-];
 
 // ── State ─────────────────────────────────────────────────────
 const state = {
@@ -24,9 +10,7 @@ const state = {
   filtered: [],
   table:    [],
   page:     1,
-  pageSize: 25,
-  sortCol:  null,
-  sortDir:  'asc',
+  pageSize: 20,
   charts:   {},
 };
 
@@ -34,371 +18,416 @@ const state = {
 const fmtPLN = v => v != null ? Number(v).toLocaleString('pl-PL', { style: 'currency', currency: 'PLN', maximumFractionDigits: 0 }) : '—';
 const fmtNum = v => v != null ? Number(v).toLocaleString('pl-PL') : '—';
 const avg    = arr => arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : 0;
-const median = arr => { if (!arr.length) return 0; const s = [...arr].sort((a,b)=>a-b); const m=Math.floor(s.length/2); return s.length%2 ? s[m] : (s[m-1]+s[m])/2; };
-
-function fmtCell(v, col) {
-  if (v === null || v === undefined || v === '') return '—';
-  if (col.currency) return fmtPLN(v);
-  if (col.num) return fmtNum(v);
-  return v;
-}
+const median = arr => {
+  if (!arr.length) return 0;
+  const s = [...arr].sort((a, b) => a - b);
+  const m = Math.floor(s.length / 2);
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+};
+const isPrawna = r =>
+  (r.nabywca_typ && r.nabywca_typ.toLowerCase().includes('prawna')) ||
+  (r.zbywca_typ  && r.zbywca_typ && r.zbywca_typ.toLowerCase().includes('prawna'));
 
 // ── Status bar ────────────────────────────────────────────────
 function setStatus(msg, type) {
   const el = document.getElementById('statusBar');
-  el.className = 'status-bar' + (type === 'error' ? ' error' : type === 'success' ? ' success' : '');
+  el.className = 'map-status' +
+    (type === 'error' ? ' error' : type === 'success' ? ' success' : '');
   el.textContent = msg;
   el.classList.remove('hidden');
   if (type === 'success') setTimeout(() => el.classList.add('hidden'), 5000);
 }
 
-// ── KPIs ──────────────────────────────────────────────────────
-function renderKPIs(data) {
+// ── Sidebar stats strip ───────────────────────────────────────
+function renderStats(data) {
   const prices = data.map(r => r.cena).filter(Boolean);
   const pm2    = data.map(r => r.cena_za_m2).filter(Boolean);
-  const areas  = data.map(r => r.powierzchnia_m2).filter(Boolean);
-  const prawne = data.filter(r => r.nabywca_typ === 'Osoba prawna').length;
-  document.getElementById('kpiGrid').innerHTML = [
-    { label: 'Transakcje',      value: data.length.toLocaleString('pl-PL'), sub: 'łącznie',            color: 'blue' },
-    { label: 'Śred. cena',      value: fmtPLN(avg(prices)),                  sub: 'arytmetyczna',       color: 'green' },
-    { label: 'Mediana cena/m²', value: fmtPLN(median(pm2)),                  sub: 'mediana',            color: 'orange' },
-    { label: 'Śred. pow.',      value: avg(areas).toLocaleString('pl-PL', {maximumFractionDigits:0}) + ' m²', sub: 'arytmetyczna', color: 'purple' },
-    { label: 'Osoby prawne',    value: prawne.toLocaleString('pl-PL'),        sub: ((prawne/data.length||0)*100).toFixed(1)+'%', color: 'red' },
-  ].map(k => `<div class="kpi-card kpi-card--${k.color}">
-    <div class="kpi-label">${k.label}</div>
-    <div class="kpi-value">${k.value}</div>
-    <div class="kpi-sub">${k.sub}</div>
-  </div>`).join('');
+  const prawne = data.filter(isPrawna).length;
+
+  document.getElementById('statCount').textContent    = data.length.toLocaleString('pl-PL');
+  document.getElementById('statAvgPrice').textContent = prices.length ? fmtPLN(avg(prices)) : '—';
+  document.getElementById('statMedianPm2').textContent = pm2.length  ? fmtPLN(median(pm2))  : '—';
+  document.getElementById('statPrawne').textContent   =
+    `${prawne} (${data.length ? ((prawne / data.length) * 100).toFixed(0) : 0}%)`;
 }
 
-// ── Charts ────────────────────────────────────────────────────
-const PAL = ['#1e6fd9','#12a05c','#e07b1a','#7c3aed','#d93b2b','#0891b2','#b45309','#be185d'];
-function destroyChart(k) { if (state.charts[k]) { state.charts[k].destroy(); delete state.charts[k]; } }
-function baseOpts(unit) {
-  return {
-    responsive: true, maintainAspectRatio: true,
-    plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => c.parsed.y.toLocaleString('pl-PL') + ' ' + unit } } },
-    scales:  { y: { ticks: { callback: v => v.toLocaleString('pl-PL') } } },
-  };
+// ── Detail panel ──────────────────────────────────────────────
+function showDetail(r) {
+  const prawna   = isPrawna(r);
+  const pillCls  = prawna ? 'dp-pill--red' : 'dp-pill--blue';
+  const kwRow    = prawna && r.KW
+    ? `<tr class="dp-kw-row"><td>Nr KW</td><td><strong>${r.KW}</strong></td></tr>` : '';
+
+  document.getElementById('dpTitle').textContent = r.ulica || 'Transakcja';
+  document.getElementById('dpBody').innerHTML = `
+    <div class="dp-rodzaj">
+      <span class="dp-rodzaj-name">${r.rodzaj || 'Grunt'}</span>
+      <span class="dp-pill ${pillCls}">${r.nabywca_typ || 'Osoba fizyczna'}</span>
+      ${r.zbywca_typ
+        ? `<span class="dp-pill ${r.zbywca_typ.toLowerCase().includes('prawna') ? 'dp-pill--red' : 'dp-pill--blue'}">${r.zbywca_typ} <small>(zbywca)</small></span>`
+        : ''}
+    </div>
+    <table class="dp-table">
+      <tr><td>Data transakcji</td><td><strong>${r.data_transakcji || '—'}</strong></td></tr>
+      <tr><td>Ulica</td><td>${r.ulica || '—'}</td></tr>
+      <tr><td>Dzielnica</td><td>${r.dzielnica || 'Bieżanów-Prokocim'}</td></tr>
+      <tr><td>Nr działki</td><td><code>${r.numer_dzialki || '—'}</code></td></tr>
+      <tr><td>Powierzchnia</td><td><strong>${fmtNum(r.powierzchnia_m2)} m²</strong></td></tr>
+      <tr><td>Cena</td><td class="dp-price">${fmtPLN(r.cena)}</td></tr>
+      <tr><td>Cena / m²</td><td class="dp-price-m2">${fmtPLN(r.cena_za_m2)}</td></tr>
+      <tr><td>Nabywca</td><td>${r.nabywca_typ || '—'}</td></tr>
+      ${r.zbywca_typ ? `<tr><td>Zbywca</td><td>${r.zbywca_typ}</td></tr>` : ''}
+      <tr><td>Forma nabycia</td><td>${r.forma_nabycia || '—'}</td></tr>
+      <tr><td>Nr repozytorium</td><td><code>${r.numer_repo || '—'}</code></td></tr>
+      ${kwRow}
+      <tr><td>Źródło</td><td>${r.zrodlo || '—'}</td></tr>
+    </table>`;
+
+  document.getElementById('detailPanel').classList.remove('hidden');
 }
 
-function renderCharts(data) {
-  // Trend
-  destroyChart('trend');
-  const mo = {};
-  data.forEach(r => { if (r.data_transakcji && r.cena_za_m2) { const m = r.data_transakcji.slice(0,7); (mo[m]=mo[m]||[]).push(r.cena_za_m2); } });
-  const mkeys = Object.keys(mo).sort();
-  state.charts.trend = new Chart(document.getElementById('chartPriceTrend'), {
-    type: 'line',
-    data: { labels: mkeys.map(l => l.slice(5)+'.'+l.slice(0,4)), datasets: [{ label: 'Śred. cena/m²', data: mkeys.map(l => Math.round(avg(mo[l]))), borderColor: PAL[0], backgroundColor: 'rgba(30,111,217,.08)', fill: true, tension: 0.35, pointRadius: 3 }] },
-    options: baseOpts('PLN/m²'),
-  });
+// ── Transaction list (sidebar) ───────────────────────────────
+function renderList() {
+  const { page, pageSize, table } = state;
+  const slice = table.slice((page - 1) * pageSize, page * pageSize);
+  document.getElementById('listCount').textContent = table.length.toLocaleString('pl-PL');
 
-  // Price by street
-  destroyChart('street');
-  const sg = {};
-  data.forEach(r => { if (r.ulica && r.cena_za_m2) (sg[r.ulica]=sg[r.ulica]||[]).push(r.cena_za_m2); });
-  const slabs = Object.keys(sg).sort((a,b) => avg(sg[b])-avg(sg[a])).slice(0, 12);
-  state.charts.street = new Chart(document.getElementById('chartPriceByStreet'), {
-    type: 'bar',
-    data: { labels: slabs, datasets: [{ data: slabs.map(l => Math.round(avg(sg[l]))), backgroundColor: PAL[0], borderRadius: 5 }] },
-    options: { ...baseOpts('PLN/m²'), plugins: { legend: { display: false }, tooltip: baseOpts('PLN/m²').plugins.tooltip } },
-  });
+  const list = document.getElementById('txList');
 
-  // Area distribution
-  destroyChart('area');
-  const buckets = [['<300',0,300],['300–600',300,600],['600–1k',600,1000],['1k–2k',1000,2000],['>2k',2000,Infinity]];
-  state.charts.area = new Chart(document.getElementById('chartAreaDist'), {
-    type: 'bar',
-    data: { labels: buckets.map(b=>b[0]+' m²'), datasets: [{ data: buckets.map(([,mn,mx]) => data.filter(r=>r.powierzchnia_m2>=mn&&r.powierzchnia_m2<mx).length), backgroundColor: PAL[2], borderRadius: 5 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } } },
-  });
+  if (!table.length) {
+    list.innerHTML = '<div class="sb-empty"><p>Brak wyników dla wybranych filtrów</p></div>';
+    document.getElementById('sbPagination').innerHTML = '';
+    return;
+  }
 
-  // Buyer type
-  destroyChart('buyer');
-  const bg = {};
-  data.forEach(r => { if (r.nabywca_typ) bg[r.nabywca_typ]=(bg[r.nabywca_typ]||0)+1; });
-  const bkeys = Object.keys(bg);
-  state.charts.buyer = new Chart(document.getElementById('chartBuyerType'), {
-    type: 'doughnut',
-    data: { labels: bkeys, datasets: [{ data: bkeys.map(k=>bg[k]), backgroundColor: [PAL[0],PAL[4]], hoverOffset: 8 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom' } } },
-  });
+  list.innerHTML = slice.map(r => {
+    const red = isPrawna(r);
+    return `<div class="tx-item" data-id="${r._id}">
+      <div class="tx-street">${r.ulica || '—'}</div>
+      <div class="tx-date">${r.data_transakcji || '—'} · ${fmtNum(r.powierzchnia_m2)} m²</div>
+      <div class="tx-meta">
+        <span class="tx-price">${fmtPLN(r.cena)}</span>
+        <span class="tx-pill ${red ? 'tx-pill--red' : 'tx-pill--blue'}">${red ? 'Prawna' : 'Fizyczna'}</span>
+      </div>
+    </div>`;
+  }).join('');
 
-  // Rodzaj
-  destroyChart('rodzaj');
-  const rg = {};
-  data.forEach(r => { if (r.rodzaj) rg[r.rodzaj]=(rg[r.rodzaj]||0)+1; });
-  const rkeys = Object.keys(rg);
-  state.charts.rodzaj = new Chart(document.getElementById('chartRodzaj'), {
-    type: 'pie',
-    data: { labels: rkeys, datasets: [{ data: rkeys.map(k=>rg[k]), backgroundColor: PAL.slice(0,rkeys.length), hoverOffset: 8 }] },
-    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom' } } },
-  });
-}
-
-// ── Table head ────────────────────────────────────────────────
-function renderTableHead() {
-  document.getElementById('offersTableHead').innerHTML = '<tr>' +
-    COLUMNS.map(c => `<th data-key="${c.key}">${c.label} <span class="sort-icon">↕</span></th>`).join('') + '</tr>';
-  document.querySelectorAll('#offersTableHead th').forEach(th => {
-    th.addEventListener('click', () => {
-      const k = th.dataset.key;
-      state.sortDir = state.sortCol === k && state.sortDir === 'asc' ? 'desc' : 'asc';
-      state.sortCol = k;
-      document.querySelectorAll('#offersTableHead th').forEach(t => { t.classList.remove('sorted'); t.querySelector('.sort-icon').textContent = '↕'; });
-      th.classList.add('sorted');
-      th.querySelector('.sort-icon').textContent = state.sortDir === 'asc' ? '↑' : '↓';
-      state.page = 1; sortTable(); renderPage();
+  // Click list item → show detail + pan map
+  list.querySelectorAll('.tx-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = +el.dataset.id;
+      const r  = table.find(x => x._id === id);
+      if (!r) return;
+      list.querySelectorAll('.tx-item').forEach(e => e.classList.remove('active'));
+      el.classList.add('active');
+      showDetail(r);
+      if (mapState?.map && r._lat && r._lon) {
+        mapState.map.setView([+r._lat, +r._lon], 17, { animate: true });
+      }
     });
   });
-}
 
-function sortTable() {
-  if (!state.sortCol) return;
-  const col = COLUMNS.find(c => c.key === state.sortCol);
-  state.table.sort((a, b) => {
-    let va = a[state.sortCol], vb = b[state.sortCol];
-    if (va == null) return 1; if (vb == null) return -1;
-    if (col?.num) { va = Number(va); vb = Number(vb); }
-    else { va = String(va).toLowerCase(); vb = String(vb).toLowerCase(); }
-    return state.sortDir === 'asc' ? (va > vb ? 1 : va < vb ? -1 : 0) : (va < vb ? 1 : va > vb ? -1 : 0);
-  });
-}
-
-function renderPage() {
-  const { page, pageSize, table } = state;
-  const slice = table.slice((page-1)*pageSize, page*pageSize);
-  document.getElementById('tableCount').textContent = table.length.toLocaleString('pl-PL');
-  document.getElementById('offersTableBody').innerHTML = slice.map(row =>
-    '<tr>' + COLUMNS.map(c => {
-      const v = row[c.key];
-      if (c.key === 'nabywca_typ') {
-        const red = v && v.includes('prawna');
-        return `<td><span class="pill ${red?'pill--red':'pill--blue'}">${v||'—'}</span></td>`;
-      }
-      if (c.key === 'KW' && v) return `<td><strong>${v}</strong></td>`;
-      return `<td>${fmtCell(v, c)}</td>`;
-    }).join('') + '</tr>'
-  ).join('') || `<tr><td colspan="${COLUMNS.length}" class="empty-row">Brak danych</td></tr>`;
   renderPagination();
 }
 
 function renderPagination() {
-  const total = state.table.length;
-  const pages = Math.ceil(total / state.pageSize) || 1;
-  const p = state.page;
-  const start = Math.min((p-1)*state.pageSize+1, total);
-  const end   = Math.min(p*state.pageSize, total);
+  const total  = state.table.length;
+  const pages  = Math.ceil(total / state.pageSize) || 1;
+  const p      = state.page;
+  const start  = Math.min((p - 1) * state.pageSize + 1, total);
+  const end    = Math.min(p * state.pageSize, total);
 
-  const range = [];
-  if (pages <= 7) { for (let i=1;i<=pages;i++) range.push(i); }
-  else {
+  // Build page number range (max 5 visible)
+  let range = [];
+  if (pages <= 7) {
+    for (let i = 1; i <= pages; i++) range.push(i);
+  } else {
     range.push(1);
     if (p > 3) range.push('…');
-    for (let i=Math.max(2,p-1); i<=Math.min(pages-1,p+1); i++) range.push(i);
-    if (p < pages-2) range.push('…');
+    for (let i = Math.max(2, p - 1); i <= Math.min(pages - 1, p + 1); i++) range.push(i);
+    if (p < pages - 2) range.push('…');
     range.push(pages);
   }
 
-  document.getElementById('pagination').innerHTML = `
-    <span>${start}–${end} z ${total.toLocaleString('pl-PL')}</span>
-    <div class="pg-btns">
-      <button class="pg-btn" id="pgPrev" ${p===1?'disabled':''}>‹</button>
-      ${range.map(r => r==='…' ? '<span class="pg-dots">…</span>' : `<button class="pg-btn${r===p?' active':''}" data-page="${r}">${r}</button>`).join('')}
-      <button class="pg-btn" id="pgNext" ${p===pages?'disabled':''}>›</button>
+  document.getElementById('sbPagination').innerHTML = `
+    <span>${start}–${end} / ${total.toLocaleString('pl-PL')}</span>
+    <div class="sb-pg-btns">
+      <button class="sb-pg-btn" id="pgPrev" ${p === 1 ? 'disabled' : ''}>‹</button>
+      ${range.map(r => r === '…'
+        ? '<span style="color:var(--sb-muted);font-size:12px;padding:0 2px">…</span>'
+        : `<button class="sb-pg-btn${r === p ? ' active' : ''}" data-page="${r}">${r}</button>`
+      ).join('')}
+      <button class="sb-pg-btn" id="pgNext" ${p === pages ? 'disabled' : ''}>›</button>
     </div>
-    <span>str. ${p} / ${pages}</span>`;
+    <span>${p}/${pages}</span>`;
 
-  document.getElementById('pgPrev').addEventListener('click', () => { state.page--; renderPage(); });
-  document.getElementById('pgNext').addEventListener('click', () => { state.page++; renderPage(); });
-  document.querySelectorAll('[data-page]').forEach(b => b.addEventListener('click', () => { state.page = +b.dataset.page; renderPage(); }));
+  document.getElementById('pgPrev').addEventListener('click', () => { state.page--; renderList(); });
+  document.getElementById('pgNext').addEventListener('click', () => { state.page++; renderList(); });
+  document.querySelectorAll('[data-page]').forEach(b =>
+    b.addEventListener('click', () => { state.page = +b.dataset.page; renderList(); })
+  );
 }
 
 // ── Filters ───────────────────────────────────────────────────
 function populateFilters(data) {
-  const rodzaje = [...new Set(data.map(r=>r.rodzaj).filter(Boolean))].sort();
-  document.getElementById('filterRodzaj').innerHTML = rodzaje.map(v=>`<option value="${v}">${v}</option>`).join('');
+  const rodzaje = [...new Set(data.map(r => r.rodzaj).filter(Boolean))].sort();
+  document.getElementById('filterRodzaj').innerHTML =
+    rodzaje.map(v => `<option value="${v}">${v}</option>`).join('');
 }
 
 function applyFilters() {
-  const rodzaj  = [...document.getElementById('filterRodzaj').selectedOptions].map(o=>o.value);
-  const ulica   = document.getElementById('filterUlica').value.toLowerCase().trim();
-  const buyer   = document.getElementById('filterBuyer').value;
-  const prMin   = +document.getElementById('filterPriceMin').value || 0;
-  const prMax   = +document.getElementById('filterPriceMax').value || Infinity;
-  const arMin   = +document.getElementById('filterAreaMin').value  || 0;
-  const arMax   = +document.getElementById('filterAreaMax').value  || Infinity;
-  const dtFrom  = document.getElementById('filterDateFrom').value;
-  const dtTo    = document.getElementById('filterDateTo').value;
+  const rodzaj = [...document.getElementById('filterRodzaj').selectedOptions].map(o => o.value);
+  const ulica  = document.getElementById('filterUlica').value.toLowerCase().trim();
+  const buyer  = document.getElementById('filterBuyer').value;
+  const prMin  = +document.getElementById('filterPriceMin').value || 0;
+  const prMax  = +document.getElementById('filterPriceMax').value || Infinity;
+  const arMin  = +document.getElementById('filterAreaMin').value  || 0;
+  const arMax  = +document.getElementById('filterAreaMax').value  || Infinity;
+  const dtFrom = document.getElementById('filterDateFrom').value;
+  const dtTo   = document.getElementById('filterDateTo').value;
 
   state.filtered = state.raw.filter(r => {
-    if (rodzaj.length  && !rodzaj.includes(r.rodzaj))                         return false;
-    if (ulica          && !String(r.ulica||'').toLowerCase().includes(ulica)) return false;
-    if (buyer          && r.nabywca_typ !== buyer)                             return false;
-    if (r.cena         && (r.cena < prMin || r.cena > prMax))                 return false;
+    if (rodzaj.length && !rodzaj.includes(r.rodzaj))                           return false;
+    if (ulica         && !String(r.ulica||'').toLowerCase().includes(ulica))   return false;
+    if (buyer         && r.nabywca_typ !== buyer)                              return false;
+    if (r.cena        && (r.cena < prMin || r.cena > prMax))                   return false;
     if (r.powierzchnia_m2 && (r.powierzchnia_m2 < arMin || r.powierzchnia_m2 > arMax)) return false;
-    if (dtFrom         && (r.data_transakcji||'') < dtFrom)                   return false;
-    if (dtTo           && (r.data_transakcji||'') > dtTo)                     return false;
+    if (dtFrom        && (r.data_transakcji||'') < dtFrom)                     return false;
+    if (dtTo          && (r.data_transakcji||'') > dtTo)                       return false;
     return true;
   });
   state.table = [...state.filtered];
   state.page  = 1;
-  sortTable();
-  renderKPIs(state.filtered);
-  renderCharts(state.filtered);
-  renderPage();
-  loadMapData(state.filtered);
+  renderStats(state.filtered);
+  renderList();
+  try { loadMapData(state.filtered); } catch(e) { console.error(e); }
 }
 
 function resetFilters() {
   document.getElementById('filterRodzaj').selectedIndex = -1;
   ['filterUlica','filterBuyer','filterPriceMin','filterPriceMax',
-   'filterAreaMin','filterAreaMax','filterDateFrom','filterDateTo','tableSearch']
-    .forEach(id => { document.getElementById(id).value = ''; });
+   'filterAreaMin','filterAreaMax','filterDateFrom','filterDateTo','sidebarSearch']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   state.filtered = [...state.raw];
   state.table    = [...state.raw];
   state.page     = 1;
-  sortTable();
-  renderKPIs(state.raw);
-  renderCharts(state.raw);
-  renderPage();
-  loadMapData(state.raw);
+  renderStats(state.raw);
+  renderList();
+  try { loadMapData(state.raw); } catch(e) { console.error(e); }
 }
 
 // ── Search ────────────────────────────────────────────────────
 function applySearch(q) {
   q = q.toLowerCase().trim();
   state.table = q
-    ? state.filtered.filter(r => COLUMNS.some(c => String(r[c.key]??'').toLowerCase().includes(q)))
+    ? state.filtered.filter(r =>
+        ['ulica', 'data_transakcji', 'rodzaj', 'nabywca_typ', 'zbywca_typ',
+         'numer_dzialki', 'numer_repo', 'KW'].some(k => String(r[k]??'').toLowerCase().includes(q))
+      )
     : [...state.filtered];
   state.page = 1;
-  sortTable();
-  renderPage();
+  renderList();
 }
 
 // ── Export CSV ────────────────────────────────────────────────
+const EXPORT_COLS = [
+  'data_transakcji','rodzaj','ulica','dzielnica','numer_dzialki',
+  'powierzchnia_m2','cena','cena_za_m2','nabywca_typ','zbywca_typ',
+  'forma_nabycia','numer_repo','KW','zrodlo',
+];
 function exportCSV() {
-  const hdr  = COLUMNS.map(c=>c.label).join(',');
-  const rows = state.table.map(r => COLUMNS.map(c => { const v=r[c.key]??''; return String(v).includes(',')?`"${v}"`:v; }).join(','));
-  const a    = Object.assign(document.createElement('a'), { href: URL.createObjectURL(new Blob([hdr+'\n'+rows.join('\n')], {type:'text/csv'})), download: 'rcn_biezanow_prokocim.csv' });
+  const hdr  = EXPORT_COLS.join(',');
+  const rows = state.table.map(r =>
+    EXPORT_COLS.map(k => { const v = r[k]??''; return String(v).includes(',') ? `"${v}"` : v; }).join(',')
+  );
+  const a = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([hdr + '\n' + rows.join('\n')], { type: 'text/csv' })),
+    download: 'rcn_biezanow_prokocim.csv',
+  });
   a.click();
 }
 
-// ── Load data ─────────────────────────────────────────────────
+// ── Charts ────────────────────────────────────────────────────
+const PAL = ['#3b82f6','#10b981','#f59e0b','#8b5cf6','#ef4444','#0891b2','#b45309','#db2777'];
+function destroyChart(k) { if (state.charts[k]) { state.charts[k].destroy(); delete state.charts[k]; } }
+
+function renderCharts(data) {
+  // Trend
+  destroyChart('trend');
+  const mo = {};
+  data.forEach(r => {
+    if (r.data_transakcji && r.cena_za_m2) {
+      const m = r.data_transakcji.slice(0, 7);
+      (mo[m] = mo[m] || []).push(+r.cena_za_m2);
+    }
+  });
+  const mkeys = Object.keys(mo).sort();
+  if (mkeys.length) {
+    state.charts.trend = new Chart(document.getElementById('chartPriceTrend'), {
+      type: 'line',
+      data: {
+        labels: mkeys.map(l => l.slice(5) + '.' + l.slice(0, 4)),
+        datasets: [{
+          label: 'Śred. cena/m²',
+          data: mkeys.map(l => Math.round(avg(mo[l]))),
+          borderColor: PAL[0],
+          backgroundColor: 'rgba(59,130,246,.08)',
+          fill: true, tension: 0.35, pointRadius: 3,
+        }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: v => v.toLocaleString('pl-PL') } } },
+      },
+    });
+  }
+
+  // Price by street
+  destroyChart('street');
+  const sg = {};
+  data.forEach(r => { if (r.ulica && r.cena_za_m2) (sg[r.ulica] = sg[r.ulica] || []).push(+r.cena_za_m2); });
+  const slabs = Object.keys(sg).sort((a, b) => avg(sg[b]) - avg(sg[a])).slice(0, 10);
+  if (slabs.length) {
+    state.charts.street = new Chart(document.getElementById('chartPriceByStreet'), {
+      type: 'bar',
+      data: {
+        labels: slabs.map(l => l.replace('ul. ', '')),
+        datasets: [{ data: slabs.map(l => Math.round(avg(sg[l]))), backgroundColor: PAL[0], borderRadius: 4 }],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: true,
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: v => v.toLocaleString('pl-PL') } } },
+      },
+    });
+  }
+
+  // Area distribution
+  destroyChart('area');
+  const buckets = [['<300m²',0,300],['300–600',300,600],['600–1k',600,1000],['1k–2k',1000,2000],['>2k',2000,Infinity]];
+  state.charts.area = new Chart(document.getElementById('chartAreaDist'), {
+    type: 'bar',
+    data: {
+      labels: buckets.map(b => b[0]),
+      datasets: [{
+        data: buckets.map(([,mn,mx]) => data.filter(r => r.powierzchnia_m2 >= mn && r.powierzchnia_m2 < mx).length),
+        backgroundColor: PAL[2], borderRadius: 4,
+      }],
+    },
+    options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { display: false } } },
+  });
+
+  // Buyer type
+  destroyChart('buyer');
+  const bg = {};
+  data.forEach(r => { if (r.nabywca_typ) bg[r.nabywca_typ] = (bg[r.nabywca_typ] || 0) + 1; });
+  const bkeys = Object.keys(bg);
+  if (bkeys.length) {
+    state.charts.buyer = new Chart(document.getElementById('chartBuyerType'), {
+      type: 'doughnut',
+      data: { labels: bkeys, datasets: [{ data: bkeys.map(k => bg[k]), backgroundColor: [PAL[0], PAL[4]], hoverOffset: 6 }] },
+      options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom' } } },
+    });
+  }
+
+  // Rodzaj
+  destroyChart('rodzaj');
+  const rg = {};
+  data.forEach(r => { if (r.rodzaj) rg[r.rodzaj] = (rg[r.rodzaj] || 0) + 1; });
+  const rkeys = Object.keys(rg);
+  if (rkeys.length) {
+    state.charts.rodzaj = new Chart(document.getElementById('chartRodzaj'), {
+      type: 'pie',
+      data: { labels: rkeys, datasets: [{ data: rkeys.map(k => rg[k]), backgroundColor: PAL.slice(0, rkeys.length), hoverOffset: 6 }] },
+      options: { responsive: true, maintainAspectRatio: true, plugins: { legend: { position: 'bottom' } } },
+    });
+  }
+}
+
+// ── Load data ──────────────────────────────────────────────────
 function loadData(data, label) {
   if (!data?.length) { setStatus('Brak danych.', 'error'); return; }
 
+  // Normalise numeric fields and assign IDs
+  let idCtr = 1;
   data.forEach(r => {
-    ['cena','cena_za_m2','powierzchnia_m2','_lat','_lon'].forEach(k => {
+    ['cena', 'cena_za_m2', 'powierzchnia_m2', '_lat', '_lon'].forEach(k => {
       if (r[k] != null && r[k] !== '') r[k] = Number(r[k]);
     });
-    if (!r.cena_za_m2 && r.cena && r.powierzchnia_m2) r.cena_za_m2 = Math.round(r.cena / r.powierzchnia_m2);
+    if (!r.cena_za_m2 && r.cena && r.powierzchnia_m2)
+      r.cena_za_m2 = Math.round(r.cena / r.powierzchnia_m2);
+    if (!r._id) r._id = idCtr++;
   });
 
   state.raw      = data;
   state.filtered = [...data];
   state.table    = [...data];
   state.page     = 1;
-  state.sortCol  = null;
-  state.sortDir  = 'asc';
 
-  document.getElementById('emptyState').classList.add('hidden');
-
-  // Make all tab buttons visible/active
-  document.querySelectorAll('.tab-btn').forEach(b => b.removeAttribute('disabled'));
-
-  showTab('dashboard');
+  // Hide empty state
+  const emptyEl = document.getElementById('sbEmpty');
+  if (emptyEl) emptyEl.classList.add('hidden');
+  document.getElementById('btnExportCSV').style.display = '';
 
   try { populateFilters(data); } catch(e) { console.error('populateFilters', e); }
-  try { renderKPIs(data);      } catch(e) { console.error('renderKPIs', e); }
-  try { renderCharts(data);    } catch(e) { console.error('renderCharts', e); }
-  try { renderTableHead();     } catch(e) { console.error('renderTableHead', e); }
-  try { renderPage();          } catch(e) { console.error('renderPage', e); }
+  try { renderStats(data);     } catch(e) { console.error('renderStats', e); }
+  try { renderList();          } catch(e) { console.error('renderList', e); }
+  try { loadMapData(data);     } catch(e) { console.error('loadMapData', e); }
 
-  // Map data — guard in case map.js failed to load
-  try {
-    if (typeof loadMapData === 'function') loadMapData(data);
-  } catch(e) { console.error('loadMapData', e); }
-
-  setStatus(`✓ ${data.length.toLocaleString('pl-PL')} transakcji (${label})`, 'success');
+  setStatus(`✓ Załadowano ${data.length.toLocaleString('pl-PL')} transakcji (${label})`, 'success');
 }
 
-// ── Tab navigation ────────────────────────────────────────────
-function showTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
-  document.querySelectorAll('.tab-content').forEach(s => s.classList.add('hidden'));
-  const ids = { dashboard: 'tabDashboard', map: 'tabMap', table: 'tabTable' };
-  document.getElementById(ids[name])?.classList.remove('hidden');
-
-  if (name === 'map') {
-    try {
-      if (typeof mapState === 'undefined') return;   // map.js not loaded
-      if (!mapState.initialized) initMap();
-      if (mapState.pendingData) {
-        const d = mapState.pendingData;
-        mapState.pendingData = null;
-        loadMapData(d);
-      }
-      setTimeout(() => mapState.map?.invalidateSize(), 120);
-    } catch(e) { console.error('map tab init', e); }
-  }
-}
-
-// ── Sample data (Bieżanów-Prokocim, realistic) ───────────────
-// Coordinates verified against OpenStreetMap / Kraków district XII geography.
-// Each street uses a center point + small random spread (≈150–250 m radius)
-// so pins land on or very near the correct street on the OSM tile layer.
+// ── Sample data ────────────────────────────────────────────────
 function generateSampleData(n = 300) {
-  // clat/clon = street centerpoint;  r = max offset in degrees (~100 m = 0.0009°lat / 0.0013°lon)
+  // Street centerpoints verified against OSM; r = max offset ~150–250 m
   const streets = [
-    // Nowy Bieżanów – NE part of district, postal 30-867
     { name: 'ul. Konrada Wallenroda',       clat: 50.0042, clon: 20.0368, r: 0.0018, base: 1100 },
-    // Prokocim / Stary Prokocim – N-S street, W side of district
     { name: 'ul. ks. Piotra Ściegiennego',  clat: 50.0138, clon: 19.9845, r: 0.0022, base: 1050 },
-    // Main Prokocim E-W road
     { name: 'ul. Prokocimska',              clat: 50.0142, clon: 19.9988, r: 0.0020, base: 1000 },
-    // Bieżanów main N-S road
     { name: 'ul. Bieżanowska',              clat: 50.0058, clon: 20.0195, r: 0.0022, base:  980 },
-    // DK94 major E-W road through district
     { name: 'ul. Wielicka',                 clat: 50.0102, clon: 20.0028, r: 0.0035, base: 1150 },
-    // Nowy Prokocim apartment blocks
     { name: 'ul. Christo Botewa',           clat: 50.0182, clon: 19.9902, r: 0.0018, base: 1020 },
-    // SW part of district
     { name: 'ul. Turniejowa',               clat: 50.0112, clon: 19.9672, r: 0.0022, base:  960 },
-    // Eastern Bieżanów
     { name: 'ul. Łużycka',                  clat: 50.0065, clon: 20.0448, r: 0.0018, base:  950 },
   ];
   const formy    = ['Akt notarialny', 'Przetarg', 'Umowa warunkowa'];
   const rodzaje  = ['Grunt budowlany', 'Dom jednorodzinny', 'Grunt niezabudowany'];
+  const zbywcyPrawni = ['Skarb Państwa', 'Gmina Kraków', 'Spółka z o.o.'];
+  const zbywcyFiz    = ['Osoba fizyczna'];
   const rows = [];
   const now  = new Date(2026, 2, 14);
 
   for (let i = 1; i <= n; i++) {
-    const s   = streets[Math.floor(Math.random() * streets.length)];
-    // Gaussian-ish spread: two uniform samples averaged gives a bell-curve effect
-    const lat = s.clat + (Math.random() - 0.5) * 2 * s.r;
-    const lon = s.clon + (Math.random() - 0.5) * 2 * s.r * 1.4; // lon deg wider than lat
-    const area      = Math.round(250 + Math.random() * 1800);
-    const priceM2   = Math.round(s.base * (0.82 + Math.random() * 0.36));
-    const isPrawna  = Math.random() < 0.16;
-    const daysAgo   = Math.floor(Math.random() * 1200); // ~3.3 years back from 2026
-    const date      = new Date(now); date.setDate(date.getDate() - daysAgo);
-    const repoNum   = `KR.${Math.floor(1000 + Math.random()*9000)}.${date.getFullYear()}`;
+    const s          = streets[Math.floor(Math.random() * streets.length)];
+    const lat        = s.clat + (Math.random() - 0.5) * 2 * s.r;
+    const lon        = s.clon + (Math.random() - 0.5) * 2 * s.r * 1.4;
+    const area       = Math.round(250 + Math.random() * 1800);
+    const priceM2    = Math.round(s.base * (0.82 + Math.random() * 0.36));
+    const nabPrawna  = Math.random() < 0.16;
+    const zbywPrawna = Math.random() < 0.14;
+    const daysAgo    = Math.floor(Math.random() * 1200);
+    const date       = new Date(now); date.setDate(date.getDate() - daysAgo);
+    const repoNum    = `KR.${Math.floor(1000 + Math.random() * 9000)}.${date.getFullYear()}`;
+    const showKW     = nabPrawna || zbywPrawna;
 
     rows.push({
+      _id:             i,
       data_transakcji: date.toISOString().slice(0, 10),
       rodzaj:          rodzaje[Math.floor(Math.random() * rodzaje.length)],
       ulica:           s.name,
       dzielnica:       'Bieżanów-Prokocim',
-      numer_dzialki:   `${Math.floor(100 + Math.random()*900)}/${Math.floor(1+Math.random()*9)}`,
+      numer_dzialki:   `${Math.floor(100 + Math.random() * 900)}/${Math.floor(1 + Math.random() * 9)}`,
       powierzchnia_m2: area,
       cena:            Math.round(priceM2 * area),
       cena_za_m2:      priceM2,
-      nabywca_typ:     isPrawna ? 'Osoba prawna' : 'Osoba fizyczna',
+      nabywca_typ:     nabPrawna  ? 'Osoba prawna' : 'Osoba fizyczna',
+      zbywca_typ:      zbywPrawna
+        ? zbywcyPrawni[Math.floor(Math.random() * zbywcyPrawni.length)]
+        : zbywcyFiz[0],
       forma_nabycia:   formy[Math.floor(Math.random() * formy.length)],
       numer_repo:      repoNum,
-      KW:              isPrawna ? `KR1P/${Math.floor(10000+Math.random()*90000)}/0` : null,
+      KW:              showKW ? `KR1P/${Math.floor(10000 + Math.random() * 90000)}/0` : null,
       zrodlo:          'Dane demonstracyjne',
       _lat:            lat,
       _lon:            lon,
@@ -407,46 +436,46 @@ function generateSampleData(n = 300) {
   return rows;
 }
 
-// ── Fetch live data from GUGiK ────────────────────────────────
+// ── Fetch live (GUGiK) ────────────────────────────────────────
 async function fetchLiveData() {
   const btn = document.getElementById('btnFetchRCN');
-  btn.disabled = true;
-  btn.textContent = '⏳ Pobieranie…';
+  const btnSb = document.getElementById('btnFetchRCNSb');
+  [btn, btnSb].forEach(b => { if (b) { b.disabled = true; b.textContent = '⏳ Pobieranie…'; } });
   setStatus('Łączenie z GUGiK RCN…');
 
-  // 1. Try local Node.js proxy (npm start)
+  // 1. Try local Node.js proxy (npm start → localhost:3000)
   try {
     const resp = await fetch('/api/rcn', { signal: AbortSignal.timeout(8000) });
     if (resp.ok) {
       const json = await resp.json();
       if (json.ok && json.records?.length > 0) {
         loadData(json.records, `GUGiK RCN WFS (${json.count} rekordów)`);
-        btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
+        [btn, btnSb].forEach(b => { if (b) { b.disabled = false; b.textContent = '⬇ Pobierz z GUGiK'; } });
         return;
       }
       if (json.ok) {
-        setStatus('Serwer proxy działa ale GUGiK zwrócił 0 rekordów. Sprawdź /api/capabilities.', 'error');
-        btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK'; return;
+        setStatus('Serwer proxy działa, ale GUGiK zwrócił 0 rekordów.', 'error');
+        [btn, btnSb].forEach(b => { if (b) { b.disabled = false; b.textContent = '⬇ Pobierz z GUGiK'; } });
+        return;
       }
     }
   } catch (_) { /* proxy not running */ }
 
-  // 2. Direct WFS from browser
+  // 2. Direct WFS from browser (usually blocked by CORS)
   await tryFetchLiveData(
     (records, ep) => {
       loadData(records, `GUGiK WFS ${ep.typeName}`);
-      btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
+      [btn, btnSb].forEach(b => { if (b) { b.disabled = false; b.textContent = '⬇ Pobierz z GUGiK'; } });
     },
     () => {
       setStatus(
-        'GUGiK WFS blokuje zapytania z przeglądarki (CORS). ' +
-        'Aby pobrać prawdziwe dane uruchom: npm install && npm start, ' +
-        'lub pobierz CSV z geoportal.gov.pl i użyj "Importuj CSV/JSON". ' +
-        'Na razie załadowano dane demonstracyjne.',
+        'GUGiK WFS niedostępny z przeglądarki (CORS).\n' +
+        'Uruchom: npm install && npm start → localhost:3000\n' +
+        'Załadowano dane demonstracyjne.',
         'error'
       );
       loadData(generateSampleData(300), 'dane demonstracyjne');
-      btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
+      [btn, btnSb].forEach(b => { if (b) { b.disabled = false; b.textContent = '⬇ Pobierz z GUGiK'; } });
     },
     msg => setStatus(msg),
   );
@@ -459,7 +488,8 @@ function handleFile(file) {
   rd.onload = e => {
     const txt = e.target.result;
     if (file.name.endsWith('.json')) {
-      try { loadData(JSON.parse(txt), file.name); } catch { setStatus('Błąd JSON', 'error'); }
+      try { loadData(JSON.parse(txt), file.name); }
+      catch { setStatus('Błąd parsowania JSON', 'error'); }
     } else {
       const res = Papa.parse(txt, { header: true, skipEmptyLines: true, dynamicTyping: true });
       loadData(res.data, file.name);
@@ -470,30 +500,64 @@ function handleFile(file) {
 
 // ── Bootstrap ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Tabs — always respond; show empty content if no data yet
-  document.querySelectorAll('.tab-btn').forEach(btn =>
-    btn.addEventListener('click', () => showTab(btn.dataset.tab))
-  );
 
-  // Fetch / sample buttons
+  // Init map immediately (always visible)
+  try { initMap(); } catch(e) { console.error('initMap failed:', e); }
+
+  // ── Sidebar collapse / expand ──
+  document.getElementById('btnCollapse').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.add('collapsed');
+    document.getElementById('btnExpandSidebar').style.display = '';
+    setTimeout(() => mapState?.map?.invalidateSize(), 270);
+  });
+  document.getElementById('btnExpandSidebar').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.remove('collapsed');
+    document.getElementById('btnExpandSidebar').style.display = 'none';
+    setTimeout(() => mapState?.map?.invalidateSize(), 270);
+  });
+
+  // ── Detail panel close ──
+  document.getElementById('btnCloseDetail').addEventListener('click', () => {
+    document.getElementById('detailPanel').classList.add('hidden');
+    document.querySelectorAll('.tx-item.active').forEach(e => e.classList.remove('active'));
+  });
+
+  // ── Charts modal ──
+  document.getElementById('btnOpenCharts').addEventListener('click', () => {
+    document.getElementById('chartsModal').classList.remove('hidden');
+    const src = state.filtered.length ? state.filtered : state.raw;
+    if (src.length) try { renderCharts(src); } catch(e) { console.error(e); }
+  });
+  document.getElementById('btnCloseCharts').addEventListener('click', () => {
+    document.getElementById('chartsModal').classList.add('hidden');
+  });
+  document.getElementById('chartsModal').addEventListener('click', e => {
+    if (e.target === document.getElementById('chartsModal'))
+      document.getElementById('chartsModal').classList.add('hidden');
+  });
+
+  // ── Data source buttons ──
   document.getElementById('btnFetchRCN').addEventListener('click', fetchLiveData);
-  document.getElementById('btnFetchRCNBig').addEventListener('click', fetchLiveData);
-  document.getElementById('btnLoadSample').addEventListener('click', () => loadData(generateSampleData(300), 'dane demonstracyjne'));
-  document.getElementById('btnLoadSampleBig').addEventListener('click', () => loadData(generateSampleData(300), 'dane demonstracyjne'));
+  document.getElementById('btnFetchRCNSb').addEventListener('click', fetchLiveData);
+  document.getElementById('btnLoadSample').addEventListener('click',
+    () => loadData(generateSampleData(300), 'dane demonstracyjne'));
+  document.getElementById('btnLoadSampleSb').addEventListener('click',
+    () => loadData(generateSampleData(300), 'dane demonstracyjne'));
+  document.getElementById('fileInput').addEventListener('change', e => {
+    handleFile(e.target.files[0]); e.target.value = '';
+  });
 
-  // File inputs
-  ['fileInput','fileInput2'].forEach(id =>
-    document.getElementById(id).addEventListener('change', e => { handleFile(e.target.files[0]); e.target.value=''; })
-  );
-
-  // Dashboard filters
+  // ── Filters ──
   document.getElementById('btnApplyFilters').addEventListener('click', applyFilters);
   document.getElementById('btnResetFilters').addEventListener('click', resetFilters);
 
-  // Table search
-  let t;
-  document.getElementById('tableSearch').addEventListener('input', e => { clearTimeout(t); t = setTimeout(() => applySearch(e.target.value), 250); });
+  // ── Search (debounced) ──
+  let searchTimer;
+  document.getElementById('sidebarSearch').addEventListener('input', e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => applySearch(e.target.value), 250);
+  });
 
-  // Export
+  // ── Export ──
   document.getElementById('btnExportCSV').addEventListener('click', exportCSV);
 });

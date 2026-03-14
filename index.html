@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Transakcje RCN – Bieżanów-Prokocim, Kraków</title>
+  <title>RCN – Transakcje Bieżanów-Prokocim, Kraków</title>
   <link rel="stylesheet" href="style.css" />
   <!-- Leaflet -->
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -21,173 +21,197 @@
 </head>
 <body>
 
-<header class="header">
-  <div class="header-inner">
-    <div class="logo">
-      <span class="logo-badge">RCN</span>
-      <div>
-        <h1>Transakcje RCN</h1>
-        <p>Bieżanów-Prokocim · Kraków · od 2021-07-31</p>
+<div id="app">
+
+  <!-- ── Sidebar ──────────────────────────────────────────── -->
+  <aside id="sidebar" class="sidebar">
+    <div class="sb-header">
+      <div class="sb-logo">
+        <span class="sb-badge">RCN</span>
+        <div>
+          <div class="sb-title">Transakcje nieruchomości</div>
+          <div class="sb-sub">Bieżanów-Prokocim · Kraków · od 2021-07-31</div>
+        </div>
+      </div>
+      <button class="sb-toggle" id="btnCollapse" title="Zwiń panel">‹</button>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="sb-stats" id="sbStats">
+      <div class="sb-stat">
+        <span class="sb-stat-val" id="statCount">—</span>
+        <span class="sb-stat-lbl">Transakcji</span>
+      </div>
+      <div class="sb-stat">
+        <span class="sb-stat-val" id="statAvgPrice">—</span>
+        <span class="sb-stat-lbl">Śred. cena</span>
+      </div>
+      <div class="sb-stat">
+        <span class="sb-stat-val" id="statMedianPm2">—</span>
+        <span class="sb-stat-lbl">Med. cena/m²</span>
+      </div>
+      <div class="sb-stat">
+        <span class="sb-stat-val" id="statPrawne">—</span>
+        <span class="sb-stat-lbl">Osoby prawne</span>
       </div>
     </div>
-    <div class="header-actions">
-      <button class="btn btn-outline" id="btnFetchRCN">⬇ Pobierz z GUGiK</button>
-      <button class="btn btn-outline" id="btnLoadSample">Dane testowe</button>
-      <label class="btn btn-primary" for="fileInput">
-        Importuj CSV/JSON
-        <input type="file" id="fileInput" accept=".csv,.json" hidden />
-      </label>
+
+    <!-- Search -->
+    <div class="sb-search">
+      <input type="text" id="sidebarSearch" placeholder="🔍 Szukaj po ulicy, dacie, kwocie…" autocomplete="off" />
     </div>
-  </div>
 
-  <nav class="tabs-bar">
-    <button class="tab-btn active" data-tab="dashboard">📊 Dashboard</button>
-    <button class="tab-btn" data-tab="map">🗺 Mapa</button>
-    <button class="tab-btn" data-tab="table">📋 Dane</button>
-  </nav>
-</header>
-
-<div class="status-bar hidden" id="statusBar"></div>
-
-<main class="container">
-
-  <!-- ── Empty state ────────────────────────────────────────── -->
-  <section class="empty-state" id="emptyState">
-    <div class="empty-icon">🏗️</div>
-    <h2>Transakcje RCN – Bieżanów-Prokocim</h2>
-    <p>Pobierz dane z GUGiK RCN, załaduj dane testowe lub zaimportuj własny plik CSV/JSON.<br>
-       <em>Dane RCN dostępne od 31 lipca 2021 r. · Obszar: Bieżanów-Prokocim, Kraków</em></p>
-    <div class="empty-actions">
-      <button class="btn btn-primary btn-lg" id="btnLoadSampleBig">Dane testowe</button>
-      <button class="btn btn-outline btn-lg" id="btnFetchRCNBig">⬇ Pobierz z GUGiK</button>
-      <label class="btn btn-ghost btn-lg" for="fileInput2">
-        Importuj CSV/JSON
-        <input type="file" id="fileInput2" accept=".csv,.json" hidden />
-      </label>
-    </div>
-    <div class="format-info">
-      <strong>Dane testowe</strong> — realistyczne transakcje Bieżanów-Prokocim, gotowe od razu.<br>
-      <strong>Pobierz z GUGiK</strong> — wymaga serwera: <code>npm install &amp;&amp; npm start</code> → localhost:3000<br>
-      <strong>Importuj CSV</strong> — pobierz ręcznie z <a href="https://www.geoportal.gov.pl/mapy/rejestr-cen-nieruchomosci/" target="_blank">geoportal.gov.pl</a> i wgraj tutaj.
-    </div>
-  </section>
-
-  <!-- ── Dashboard ──────────────────────────────────────────── -->
-  <section class="tab-content hidden" id="tabDashboard">
-    <div class="kpi-grid" id="kpiGrid"></div>
-
-    <div class="card filters-bar">
-      <h3>Filtry</h3>
-      <div class="filters-row">
-        <div class="filter-group">
-          <label>Rodzaj</label>
+    <!-- Filters (collapsible) -->
+    <details class="sb-section" id="filtersSection">
+      <summary class="sb-section-title">▸ Filtry</summary>
+      <div class="sb-filters">
+        <div class="sf-group">
+          <label>Rodzaj nieruchomości</label>
           <select id="filterRodzaj" multiple></select>
         </div>
-        <div class="filter-group">
-          <label>Ulica</label>
-          <input type="text" id="filterUlica" placeholder="np. Walenroda" />
-        </div>
-        <div class="filter-group">
-          <label>Nabywca</label>
+        <div class="sf-group">
+          <label>Typ nabywcy</label>
           <select id="filterBuyer">
-            <option value="">Wszyscy</option>
+            <option value="">Wszyscy nabywcy</option>
             <option value="Osoba fizyczna">Osoba fizyczna</option>
             <option value="Osoba prawna">Osoba prawna</option>
           </select>
         </div>
-        <div class="filter-group">
-          <label>Cena (PLN)</label>
-          <div class="range-inputs">
+        <div class="sf-group">
+          <label>Ulica</label>
+          <input type="text" id="filterUlica" placeholder="np. Wielicka" />
+        </div>
+        <div class="sf-group">
+          <label>Cena transakcji (PLN)</label>
+          <div class="sf-range">
             <input type="number" id="filterPriceMin" placeholder="Min" />
             <span>–</span>
             <input type="number" id="filterPriceMax" placeholder="Max" />
           </div>
         </div>
-        <div class="filter-group">
+        <div class="sf-group">
           <label>Powierzchnia (m²)</label>
-          <div class="range-inputs">
+          <div class="sf-range">
             <input type="number" id="filterAreaMin" placeholder="Min" />
             <span>–</span>
             <input type="number" id="filterAreaMax" placeholder="Max" />
           </div>
         </div>
-        <div class="filter-group">
-          <label>Data od – do</label>
-          <div class="range-inputs">
+        <div class="sf-group">
+          <label>Data transakcji</label>
+          <div class="sf-range">
             <input type="date" id="filterDateFrom" />
             <span>–</span>
             <input type="date" id="filterDateTo" />
           </div>
         </div>
-        <div class="filter-group filter-group--actions">
-          <button class="btn btn-primary" id="btnApplyFilters">Zastosuj</button>
-          <button class="btn btn-ghost" id="btnResetFilters">Resetuj</button>
+        <div class="sf-actions">
+          <button class="btn btn-primary btn-sm" id="btnApplyFilters">Zastosuj</button>
+          <button class="btn btn-ghost-light btn-sm" id="btnResetFilters">Resetuj</button>
         </div>
       </div>
+    </details>
+
+    <!-- Transaction list -->
+    <div class="sb-list-section">
+      <div class="sb-section-title">
+        Transakcje&nbsp;<span class="sb-badge-count" id="listCount">0</span>
+      </div>
+      <div class="sb-list" id="txList">
+        <div class="sb-empty" id="sbEmpty">
+          <div class="sb-empty-icon">🏗️</div>
+          <p>Pobierz dane lub załaduj plik CSV/JSON</p>
+          <div class="sb-empty-btns">
+            <button class="btn btn-primary btn-sm" id="btnLoadSampleSb">Dane testowe</button>
+            <button class="btn btn-outline-light btn-sm" id="btnFetchRCNSb">⬇ GUGiK</button>
+          </div>
+        </div>
+      </div>
+      <div class="sb-pagination" id="sbPagination"></div>
     </div>
 
-    <div class="charts-grid">
-      <div class="card chart-card chart-card--wide">
-        <h3>Trend cen transakcyjnych (PLN/m²)</h3>
-        <canvas id="chartPriceTrend"></canvas>
-      </div>
-      <div class="card chart-card">
-        <h3>Śred. cena/m² według ulicy</h3>
-        <canvas id="chartPriceByStreet"></canvas>
-      </div>
-      <div class="card chart-card">
-        <h3>Rozkład powierzchni działek (m²)</h3>
-        <canvas id="chartAreaDist"></canvas>
-      </div>
-      <div class="card chart-card">
-        <h3>Nabywcy</h3>
-        <canvas id="chartBuyerType"></canvas>
-      </div>
-      <div class="card chart-card">
-        <h3>Rodzaj nieruchomości</h3>
-        <canvas id="chartRodzaj"></canvas>
-      </div>
+    <!-- Data source actions -->
+    <div class="sb-actions">
+      <button class="btn btn-outline-light" id="btnFetchRCN">⬇ Pobierz z GUGiK</button>
+      <button class="btn btn-ghost-light" id="btnLoadSample">Dane testowe</button>
+      <label class="btn btn-ghost-light" for="fileInput">
+        📂 Importuj CSV/JSON
+        <input type="file" id="fileInput" accept=".csv,.json" hidden />
+      </label>
+      <button class="btn btn-ghost-light" id="btnExportCSV" style="display:none">Eksportuj CSV</button>
     </div>
-  </section>
+  </aside>
 
-  <!-- ── Mapa ───────────────────────────────────────────────── -->
-  <section class="tab-content hidden" id="tabMap">
-    <div class="map-topbar card">
-      <div class="map-legend">
-        <span class="ldot ldot--blue"></span> Osoba fizyczna &nbsp;
+  <!-- ── Map area ──────────────────────────────────────────── -->
+  <div id="mapWrap">
+
+    <!-- Floating toolbar -->
+    <div class="map-toolbar">
+      <button class="mtb-btn" id="btnExpandSidebar" title="Rozwiń panel" style="display:none">☰</button>
+      <div class="mtb-legend">
+        <span class="ldot ldot--blue"></span> Osoba fizyczna
         <span class="ldot ldot--red"></span> Osoba prawna
       </div>
-      <div class="map-count">Pinezek na mapie: <strong id="mapCount">0</strong></div>
+      <div class="mtb-sep"></div>
+      <div class="mtb-info">Pinezek: <strong id="mapCount">0</strong></div>
+      <button class="mtb-btn" id="btnOpenCharts">📊 Statystyki</button>
     </div>
-    <div id="krakowMap"></div>
-    <p class="map-credit">Podkład: © OpenStreetMap | Dane: GUGiK RCN</p>
-  </section>
 
-  <!-- ── Tabela ─────────────────────────────────────────────── -->
-  <section class="tab-content hidden" id="tabTable">
-    <div class="card table-card">
-      <div class="table-header">
-        <h3>Transakcje <span class="badge" id="tableCount">0</span></h3>
-        <div class="table-actions">
-          <input type="text" id="tableSearch" placeholder="Szukaj po dowolnym polu…" class="search-input" />
-          <button class="btn btn-outline btn-sm" id="btnExportCSV">Eksportuj CSV</button>
+    <!-- Status bar (floating) -->
+    <div class="map-status hidden" id="statusBar"></div>
+
+    <!-- Map -->
+    <div id="krakowMap"></div>
+
+    <!-- Map credit -->
+    <div class="map-credit">© OpenStreetMap | Dane: GUGiK RCN</div>
+
+    <!-- Detail panel (slides in on marker click) -->
+    <div class="detail-panel hidden" id="detailPanel">
+      <div class="dp-header">
+        <div class="dp-title" id="dpTitle">Szczegóły transakcji</div>
+        <button class="dp-close" id="btnCloseDetail" title="Zamknij">×</button>
+      </div>
+      <div class="dp-body" id="dpBody"></div>
+    </div>
+
+  </div><!-- /mapWrap -->
+
+</div><!-- /app -->
+
+<!-- Charts modal -->
+<div class="modal-overlay hidden" id="chartsModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h2>📊 Statystyki – Bieżanów-Prokocim</h2>
+      <button class="dp-close" id="btnCloseCharts">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="charts-grid">
+        <div class="chart-card chart-wide">
+          <h3>Trend cen transakcyjnych (PLN/m²)</h3>
+          <canvas id="chartPriceTrend"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Śred. cena/m² wg ulicy</h3>
+          <canvas id="chartPriceByStreet"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Rozkład powierzchni działek</h3>
+          <canvas id="chartAreaDist"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Typ nabywcy</h3>
+          <canvas id="chartBuyerType"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>Rodzaj nieruchomości</h3>
+          <canvas id="chartRodzaj"></canvas>
         </div>
       </div>
-      <div class="table-wrapper">
-        <table id="offersTable">
-          <thead id="offersTableHead"></thead>
-          <tbody id="offersTableBody"></tbody>
-        </table>
-      </div>
-      <div class="table-pagination" id="pagination"></div>
     </div>
-  </section>
-
-</main>
-
-<footer class="footer">
-  Transakcje RCN – Bieżanów-Prokocim, Kraków · dane GUGiK (geoportal.gov.pl) · od 31 lipca 2021 r.
-</footer>
+  </div>
+</div>
 
 <script src="map.js"></script>
 <script src="app.js"></script>
