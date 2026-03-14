@@ -36,7 +36,7 @@ body {
   border-bottom: 1px solid var(--gray-200);
   position: sticky;
   top: 0;
-  z-index: 100;
+  z-index: 500;
 }
 .header-inner {
   max-width: 1400px;
@@ -62,6 +62,29 @@ body {
 .logo p  { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
 .header-actions { display: flex; gap: 10px; flex-wrap: wrap; }
 
+/* ===== Tabs ===== */
+.tabs-bar {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  gap: 4px;
+  border-top: 1px solid var(--gray-100);
+}
+.tab-btn {
+  background: none;
+  border: none;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--gray-600);
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: color .15s, border-color .15s;
+}
+.tab-btn:hover  { color: var(--blue); }
+.tab-btn.active { color: var(--blue); border-bottom-color: var(--blue); }
+
 /* ===== Buttons ===== */
 .btn {
   display: inline-flex;
@@ -76,14 +99,28 @@ body {
   transition: background .15s, opacity .15s;
   white-space: nowrap;
 }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn-primary  { background: var(--blue);    color: var(--white); }
-.btn-primary:hover { background: var(--blue-dark); }
+.btn-primary:hover:not(:disabled)  { background: var(--blue-dark); }
 .btn-outline  { background: transparent; color: var(--blue); border: 1.5px solid var(--blue); }
-.btn-outline:hover { background: var(--blue-light); }
+.btn-outline:hover:not(:disabled)  { background: var(--blue-light); }
 .btn-ghost    { background: transparent; color: var(--gray-600); }
-.btn-ghost:hover  { background: var(--gray-100); }
+.btn-ghost:hover:not(:disabled)    { background: var(--gray-100); }
 .btn-sm  { padding: 5px 12px; font-size: 13px; }
 .btn-lg  { padding: 12px 24px; font-size: 16px; }
+
+/* ===== Status bar ===== */
+.status-bar {
+  background: var(--blue-light);
+  border: 1px solid #b8d0f5;
+  border-radius: var(--radius);
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--blue-dark);
+}
+.status-bar.error { background: #fef2f2; border-color: #fca5a5; color: var(--red); }
+.status-bar.success { background: #f0fdf4; border-color: #86efac; color: #065f46; }
 
 /* ===== Container ===== */
 .container {
@@ -97,7 +134,7 @@ body {
 .empty-state {
   text-align: center;
   padding: 80px 24px;
-  max-width: 580px;
+  max-width: 600px;
   margin: 40px auto;
 }
 .empty-icon { font-size: 64px; margin-bottom: 24px; }
@@ -112,14 +149,13 @@ body {
   font-size: 12px;
   color: var(--gray-600);
   text-align: left;
-  line-height: 1.7;
-  word-break: break-all;
+  line-height: 1.8;
 }
 
 /* ===== KPI grid ===== */
 .kpi-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -132,8 +168,8 @@ body {
   flex-direction: column;
   gap: 6px;
 }
-.kpi-label { font-size: 12px; color: var(--gray-400); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-.kpi-value { font-size: 28px; font-weight: 800; line-height: 1; }
+.kpi-label { font-size: 11px; color: var(--gray-400); font-weight: 700; text-transform: uppercase; letter-spacing: .6px; }
+.kpi-value { font-size: 26px; font-weight: 800; line-height: 1; }
 .kpi-sub   { font-size: 12px; color: var(--gray-600); }
 .kpi-card--blue   .kpi-value { color: var(--blue); }
 .kpi-card--green  .kpi-value { color: var(--green); }
@@ -159,10 +195,11 @@ body {
   gap: 16px;
   align-items: flex-end;
 }
-.filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 160px; }
+.filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 140px; }
 .filter-group label { font-size: 12px; font-weight: 600; color: var(--gray-600); }
 .filter-group select,
-.filter-group input[type="number"] {
+.filter-group input[type="number"],
+.filter-group input[type="date"] {
   border: 1.5px solid var(--gray-200);
   border-radius: 7px;
   padding: 7px 10px;
@@ -190,6 +227,80 @@ body {
 .chart-card canvas { max-height: 280px; }
 .chart-card--wide { grid-column: 1 / -1; }
 .chart-card--wide canvas { max-height: 220px; }
+
+/* ===== Map ===== */
+#krakowMap {
+  height: 580px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  z-index: 1;
+}
+.map-toolbar {
+  margin-bottom: 12px;
+  padding: 14px 18px;
+}
+.map-toolbar-inner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+.map-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.legend-dot {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1.5px #999;
+}
+.legend-dot--fizyczna { background: var(--blue); }
+.legend-dot--prawna   { background: var(--red); }
+.map-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
+.map-filters select,
+.map-filters input[type="number"] {
+  border: 1.5px solid var(--gray-200);
+  border-radius: 7px;
+  padding: 5px 9px;
+  font-size: 13px;
+  outline: none;
+}
+.map-filters select:focus,
+.map-filters input:focus { border-color: var(--blue); }
+.map-count { margin-left: auto; font-size: 13px; color: var(--gray-600); }
+.map-source-note { font-size: 11px; color: var(--gray-400); margin-top: 8px; text-align: right; }
+
+/* Cluster icons */
+.cluster-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-weight: 700;
+  color: #fff;
+  border: 2px solid #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,.25);
+}
+.cluster-icon--sm { width: 34px; height: 34px; font-size: 13px; background: var(--blue); }
+.cluster-icon--md { width: 40px; height: 40px; font-size: 14px; background: var(--orange); }
+.cluster-icon--lg { width: 48px; height: 48px; font-size: 15px; background: var(--red); }
+
+/* Leaflet popup */
+.rcn-popup { font-size: 13px; min-width: 280px; }
+.rcn-popup-title {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.rcn-popup-table { width: 100%; border-collapse: collapse; }
+.rcn-popup-table td { padding: 4px 6px; vertical-align: top; }
+.rcn-popup-table td:first-child { color: var(--gray-400); white-space: nowrap; padding-right: 10px; }
+.rcn-popup-table code { background: var(--gray-100); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+.popup-kw td { background: #fff7ed; font-weight: 600; }
 
 /* ===== Table ===== */
 .table-card { padding: 0; overflow: hidden; }
@@ -223,11 +334,7 @@ body {
   margin-left: 6px;
 }
 .table-wrapper { overflow-x: auto; }
-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 13px;
-}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
 thead th {
   background: var(--gray-50);
   padding: 10px 14px;
@@ -249,6 +356,7 @@ tbody tr { border-bottom: 1px solid var(--gray-100); transition: background .1s;
 tbody tr:last-child { border-bottom: none; }
 tbody tr:hover { background: var(--gray-50); }
 tbody td { padding: 10px 14px; white-space: nowrap; }
+
 .pill {
   display: inline-block;
   padding: 2px 10px;
@@ -259,6 +367,7 @@ tbody td { padding: 10px 14px; white-space: nowrap; }
 .pill--green  { background: #d1fae5; color: #065f46; }
 .pill--orange { background: #fef3c7; color: #92400e; }
 .pill--blue   { background: var(--blue-light); color: var(--blue-dark); }
+.pill--red    { background: #fef2f2; color: #991b1b; }
 .pill--gray   { background: var(--gray-100); color: var(--gray-600); }
 
 /* ===== Pagination ===== */
@@ -286,7 +395,7 @@ tbody td { padding: 10px 14px; white-space: nowrap; }
 }
 .pg-btn:hover:not(:disabled) { border-color: var(--blue); color: var(--blue); }
 .pg-btn:disabled { opacity: .4; cursor: default; }
-.pg-btn.active  { background: var(--blue); border-color: var(--blue); color: var(--white); }
+.pg-btn.active   { background: var(--blue); border-color: var(--blue); color: var(--white); }
 
 /* ===== Footer ===== */
 .footer {
@@ -296,6 +405,7 @@ tbody td { padding: 10px 14px; white-space: nowrap; }
   color: var(--gray-400);
   border-top: 1px solid var(--gray-200);
   background: var(--white);
+  margin-top: auto;
 }
 
 /* ===== Utilities ===== */
@@ -306,4 +416,5 @@ tbody td { padding: 10px 14px; white-space: nowrap; }
   .charts-grid { grid-template-columns: 1fr; }
   .header-inner { flex-direction: column; align-items: flex-start; }
   .search-input { width: 140px; }
+  #krakowMap { height: 420px; }
 }
