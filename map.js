@@ -36,7 +36,7 @@ function initMap() {
   mapState.initialized = true;
 
   mapState.map = L.map('krakowMap', {
-    center: [50.0155, 20.005],   // Bieżanów-Prokocim center
+    center: [50.010, 20.005],   // Bieżanów-Prokocim geographic center
     zoom:   14,
   });
 

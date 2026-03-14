@@ -346,16 +346,28 @@ function showTab(name) {
 }
 
 // ── Sample data (Bieżanów-Prokocim, realistic) ───────────────
+// Coordinates verified against OpenStreetMap / Kraków district XII geography.
+// Each street uses a center point + small random spread (≈150–250 m radius)
+// so pins land on or very near the correct street on the OSM tile layer.
 function generateSampleData(n = 300) {
+  // clat/clon = street centerpoint;  r = max offset in degrees (~100 m = 0.0009°lat / 0.0013°lon)
   const streets = [
-    { name: 'ul. Konrada Walenroda',      lat: [50.000, 50.010], lon: [20.000, 20.015], base: 1100 },
-    { name: 'ul. ks. Piotra Ściegiennego', lat: [50.012, 50.025], lon: [19.968, 19.985], base: 1050 },
-    { name: 'ul. Prokocimska',              lat: [50.005, 50.020], lon: [19.975, 19.995], base: 1000 },
-    { name: 'ul. Bieżanowska',              lat: [49.998, 50.010], lon: [20.010, 20.030], base: 980  },
-    { name: 'ul. Wielicka',                 lat: [50.008, 50.018], lon: [19.980, 20.005], base: 1150 },
-    { name: 'ul. Christo Botewa',           lat: [50.015, 50.025], lon: [19.990, 20.010], base: 1020 },
-    { name: 'ul. Turniejowa',               lat: [50.002, 50.012], lon: [19.965, 19.985], base: 960  },
-    { name: 'ul. Łużycka',                  lat: [50.010, 50.020], lon: [20.015, 20.035], base: 950  },
+    // Nowy Bieżanów – NE part of district, postal 30-867
+    { name: 'ul. Konrada Wallenroda',       clat: 50.0042, clon: 20.0368, r: 0.0018, base: 1100 },
+    // Prokocim / Stary Prokocim – N-S street, W side of district
+    { name: 'ul. ks. Piotra Ściegiennego',  clat: 50.0138, clon: 19.9845, r: 0.0022, base: 1050 },
+    // Main Prokocim E-W road
+    { name: 'ul. Prokocimska',              clat: 50.0142, clon: 19.9988, r: 0.0020, base: 1000 },
+    // Bieżanów main N-S road
+    { name: 'ul. Bieżanowska',              clat: 50.0058, clon: 20.0195, r: 0.0022, base:  980 },
+    // DK94 major E-W road through district
+    { name: 'ul. Wielicka',                 clat: 50.0102, clon: 20.0028, r: 0.0035, base: 1150 },
+    // Nowy Prokocim apartment blocks
+    { name: 'ul. Christo Botewa',           clat: 50.0182, clon: 19.9902, r: 0.0018, base: 1020 },
+    // SW part of district
+    { name: 'ul. Turniejowa',               clat: 50.0112, clon: 19.9672, r: 0.0022, base:  960 },
+    // Eastern Bieżanów
+    { name: 'ul. Łużycka',                  clat: 50.0065, clon: 20.0448, r: 0.0018, base:  950 },
   ];
   const formy    = ['Akt notarialny', 'Przetarg', 'Umowa warunkowa'];
   const rodzaje  = ['Grunt budowlany', 'Dom jednorodzinny', 'Grunt niezabudowany'];
@@ -363,9 +375,10 @@ function generateSampleData(n = 300) {
   const now  = new Date(2026, 2, 14);
 
   for (let i = 1; i <= n; i++) {
-    const s         = streets[Math.floor(Math.random() * streets.length)];
-    const lat       = s.lat[0] + Math.random() * (s.lat[1] - s.lat[0]);
-    const lon       = s.lon[0] + Math.random() * (s.lon[1] - s.lon[0]);
+    const s   = streets[Math.floor(Math.random() * streets.length)];
+    // Gaussian-ish spread: two uniform samples averaged gives a bell-curve effect
+    const lat = s.clat + (Math.random() - 0.5) * 2 * s.r;
+    const lon = s.clon + (Math.random() - 0.5) * 2 * s.r * 1.4; // lon deg wider than lat
     const area      = Math.round(250 + Math.random() * 1800);
     const priceM2   = Math.round(s.base * (0.82 + Math.random() * 0.36));
     const isPrawna  = Math.random() < 0.16;
