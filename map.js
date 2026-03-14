@@ -1,286 +1,255 @@
 'use strict';
-
 /* ============================================================
-   RCN Map Module – Leaflet map + GUGiK WFS fetcher
-   EPSG:2180 (PUWG 1992) → WGS84 coordinate conversion
+   RCN Map – Leaflet + proj4  (deferred init, fixed CORS fallback)
+   Centrum: Bieżanów-Prokocim (50.015, 20.010), zoom 14
    ============================================================ */
 
-// ── EPSG:2180 definition for proj4 ───────────────────────────
 proj4.defs('EPSG:2180',
   '+proj=tmerc +lat_0=0 +lon_0=19 +k=0.9993 +x_0=500000 +y_0=-5300000 ' +
   '+ellps=GRS80 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs');
 
-// ── WFS endpoints to try ──────────────────────────────────────
+// WFS endpoints tried in order
 const WFS_ENDPOINTS = [
-  {
-    url: 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/RCN/WFS/PointsOfObjects',
-    typeName: 'rcn:ObiektTransakcji',
-  },
-  {
-    url: 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/RCN/WFS/PointsOfObjects',
-    typeName: 'ms:rcn_s_wfs_public',
-  },
-  {
-    url: 'https://mapy.geoportal.gov.pl/wss/service/rcn',
-    typeName: 'rcn:transakcje',
-  },
+  { url: 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/RCN/WFS/PointsOfObjects', typeName: 'rcn:ObiektTransakcji' },
+  { url: 'https://mapy.geoportal.gov.pl/wss/service/PZGIK/RCN/WFS/PointsOfObjects', typeName: 'ms:rcn_s_wfs_public' },
+  { url: 'https://mapy.geoportal.gov.pl/wss/service/rcn',                            typeName: 'rcn:transakcje' },
+  { url: 'https://mapy.geoportal.gov.pl/wss/service/rcn',                            typeName: 'rcn:grunty' },
 ];
 
-// Kraków bounding box in EPSG:2180
-const KRAKOW_BBOX_2180 = {
-  minX: 437000, minY: 548000,
-  maxX: 465000, maxY: 565000,
-};
+// Bieżanów-Prokocim EPSG:2180 bbox
+const BP_BBOX = { minX: 449000, minY: 549000, maxX: 459000, maxY: 556000 };
 
-// ── Map state ─────────────────────────────────────────────────
+// ── Public map state (read by app.js) ─────────────────────────
 const mapState = {
   map:          null,
-  clusterGroup: null,
-  allMarkers:   [],   // { marker, record } pairs
+  cluster:      null,
+  allMarkers:   [],        // { marker, record }
+  pendingData:  null,      // data waiting for map to be shown
   initialized:  false,
 };
 
-// ── Init Leaflet map ──────────────────────────────────────────
+// ── Init map (only when div is visible) ───────────────────────
 function initMap() {
   if (mapState.initialized) return;
   mapState.initialized = true;
 
   mapState.map = L.map('krakowMap', {
-    center: [50.0614, 19.9366],
-    zoom: 12,
-    zoomControl: true,
+    center: [50.0155, 20.005],   // Bieżanów-Prokocim center
+    zoom:   14,
   });
 
   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
     maxZoom: 19,
   }).addTo(mapState.map);
 
-  mapState.clusterGroup = L.markerClusterGroup({
-    maxClusterRadius: 50,
+  mapState.cluster = L.markerClusterGroup({
+    maxClusterRadius: 40,
     showCoverageOnHover: false,
     iconCreateFunction: cluster => {
       const n = cluster.getChildCount();
-      const size = n < 10 ? 'sm' : n < 50 ? 'md' : 'lg';
-      return L.divIcon({
-        html: `<div class="cluster-icon cluster-icon--${size}">${n}</div>`,
-        className: '',
-        iconSize: L.point(40, 40),
-      });
+      const cls = n < 10 ? 'sm' : n < 50 ? 'md' : 'lg';
+      return L.divIcon({ html: `<div class="ci ci--${cls}">${n}</div>`, className: '', iconSize: [38, 38] });
     },
   });
-  mapState.map.addLayer(mapState.clusterGroup);
+  mapState.map.addLayer(mapState.cluster);
 }
 
-// ── Marker icons ──────────────────────────────────────────────
-function makeIcon(buyerType) {
-  const isPrawna = buyerType && buyerType.toLowerCase().includes('prawna');
-  const color    = isPrawna ? '#d93b2b' : '#1e6fd9';
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="32" viewBox="0 0 24 32">
-    <path d="M12 0C5.37 0 0 5.37 0 12c0 9 12 20 12 20S24 21 24 12C24 5.37 18.63 0 12 0z" fill="${color}" stroke="#fff" stroke-width="1.5"/>
-    <circle cx="12" cy="12" r="5" fill="#fff"/>
-  </svg>`;
+// ── Marker icon ───────────────────────────────────────────────
+function makeIcon(nabywcaTyp) {
+  const red = nabywcaTyp && nabywcaTyp.toLowerCase().includes('prawna');
+  const c   = red ? '#d93b2b' : '#1e6fd9';
   return L.divIcon({
-    html: svg,
+    html: `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="30" viewBox="0 0 22 30">
+      <path d="M11 0C4.9 0 0 4.9 0 11c0 8.3 11 19 11 19S22 19.3 22 11C22 4.9 17.1 0 11 0z"
+            fill="${c}" stroke="#fff" stroke-width="1.5"/>
+      <circle cx="11" cy="11" r="4.5" fill="#fff"/>
+    </svg>`,
     className: '',
-    iconSize:   [24, 32],
-    iconAnchor: [12, 32],
-    popupAnchor: [0, -32],
+    iconSize:   [22, 30],
+    iconAnchor: [11, 30],
+    popupAnchor: [0, -30],
   });
 }
 
-// ── Popup HTML ────────────────────────────────────────────────
-function buildPopup(r) {
+// ── Popup ─────────────────────────────────────────────────────
+function makePopup(r) {
+  const fmtPLN = v => v != null ? Number(v).toLocaleString('pl-PL', { style: 'currency', currency: 'PLN', maximumFractionDigits: 0 }) : '—';
+  const fmtNum = v => v != null ? Number(v).toLocaleString('pl-PL') : '—';
   const isPrawna = r.nabywca_typ && r.nabywca_typ.toLowerCase().includes('prawna');
-  const fmtPLN   = v => v != null ? Number(v).toLocaleString('pl-PL', { style: 'currency', currency: 'PLN', maximumFractionDigits: 0 }) : '—';
-  const fmtNum   = v => v != null ? Number(v).toLocaleString('pl-PL') : '—';
 
-  let kwRow = '';
-  if (isPrawna && r.KW) {
-    kwRow = `<tr class="popup-kw"><td>Nr KW</td><td><strong>${r.KW}</strong></td></tr>`;
-  }
+  const kwRow = isPrawna && r.KW
+    ? `<tr class="kw-row"><td>Nr KW</td><td><strong>${r.KW}</strong></td></tr>`
+    : '';
 
-  return `
-    <div class="rcn-popup">
-      <div class="rcn-popup-title">
-        ${r.rodzaj || 'Grunt / działka'}
-        <span class="pill ${isPrawna ? 'pill--red' : 'pill--blue'}">${r.nabywca_typ || '—'}</span>
-      </div>
-      <table class="rcn-popup-table">
-        <tr><td>Data transakcji</td><td><strong>${r.data_transakcji || '—'}</strong></td></tr>
-        <tr><td>Ulica</td><td>${r.ulica || '—'}</td></tr>
-        <tr><td>Dzielnica</td><td>${r.dzielnica || '—'}</td></tr>
-        <tr><td>Nr działki</td><td><code>${r.numer_dzialki || '—'}</code></td></tr>
-        <tr><td>Powierzchnia</td><td><strong>${fmtNum(r.powierzchnia_m2)} m²</strong></td></tr>
-        <tr><td>Cena</td><td><strong>${fmtPLN(r.cena)}</strong></td></tr>
-        <tr><td>Cena / m²</td><td><strong>${fmtPLN(r.cena_za_m2)}</strong></td></tr>
-        <tr><td>Forma nabycia</td><td>${r.forma_nabycia || '—'}</td></tr>
-        <tr><td>Nr w repozytorium</td><td><code>${r.numer_repo || '—'}</code></td></tr>
-        ${kwRow}
-      </table>
-      <div style="font-size:10px;color:#9ca3af;margin-top:6px">Źródło: ${r.zrodlo || 'GUGiK RCN'}</div>
-    </div>`;
+  return `<div class="rcn-popup">
+    <div class="rcn-popup-title">
+      ${r.rodzaj || 'Grunt / działka'}
+      <span class="pill ${isPrawna ? 'pill--red' : 'pill--blue'}">${r.nabywca_typ || '—'}</span>
+    </div>
+    <table class="rp-table">
+      <tr><td>Data transakcji</td><td><strong>${r.data_transakcji || '—'}</strong></td></tr>
+      <tr><td>Ulica</td><td>${r.ulica || '—'}</td></tr>
+      <tr><td>Nr działki</td><td><code>${r.numer_dzialki || '—'}</code></td></tr>
+      <tr><td>Powierzchnia</td><td><strong>${fmtNum(r.powierzchnia_m2)} m²</strong></td></tr>
+      <tr><td>Cena</td><td><strong>${fmtPLN(r.cena)}</strong></td></tr>
+      <tr><td>Cena / m²</td><td><strong>${fmtPLN(r.cena_za_m2)}</strong></td></tr>
+      <tr><td>Forma nabycia</td><td>${r.forma_nabycia || '—'}</td></tr>
+      <tr><td>Nr repozytorium</td><td><code>${r.numer_repo || '—'}</code></td></tr>
+      ${kwRow}
+    </table>
+  </div>`;
 }
 
 // ── EPSG:2180 → WGS84 ─────────────────────────────────────────
 function toWGS84(x, y) {
   try {
     const [lon, lat] = proj4('EPSG:2180', 'WGS84', [x, y]);
-    if (isFinite(lat) && isFinite(lon) && lat > 49 && lat < 51 && lon > 18 && lon < 22) {
-      return [lat, lon];
-    }
+    if (lat > 49 && lat < 51 && lon > 18 && lon < 22) return [lat, lon];
   } catch (_) {}
   return null;
 }
 
-// ── Parse GML feature collection ─────────────────────────────
-function parseGML(xmlText) {
-  const parser = new DOMParser();
-  const doc    = parser.parseFromString(xmlText, 'application/xml');
-  const members = doc.querySelectorAll('member, featureMember');
-  const records  = [];
+// ── Load records onto map (ALL, no filter) ────────────────────
+function loadMapData(records) {
+  // If map not yet initialized, store for later
+  if (!mapState.initialized) {
+    mapState.pendingData = records;
+    return;
+  }
 
-  members.forEach(m => {
-    // Try to find geometry
-    let latlon = null;
-    const posEl = m.querySelector('pos, coordinates, Point pos');
-    if (posEl) {
-      const parts = posEl.textContent.trim().split(/[\s,]+/).map(Number);
-      if (parts.length >= 2) latlon = toWGS84(parts[0], parts[1]);
-    }
+  mapState.cluster.clearLayers();
+  mapState.allMarkers = [];
 
-    const getText = sel => {
-      const el = m.querySelector(sel);
-      return el ? el.textContent.trim() : null;
-    };
+  records.forEach(r => {
+    if (r._lat == null || r._lon == null) return;
+    const lat = Number(r._lat), lon = Number(r._lon);
+    if (!isFinite(lat) || !isFinite(lon)) return;
 
-    if (!latlon) return; // skip features without valid location
-
-    records.push({
-      data_transakcji: getText('dataTransakcji, data_transakcji, dataWpisania'),
-      powierzchnia_m2: parseFloat(getText('powierzchnia, powierzchnia_m2') || ''),
-      cena:            parseFloat(getText('cena, cenaTransakcji') || ''),
-      cena_za_m2:      parseFloat(getText('cenaZaM2, cena_za_m2') || ''),
-      numer_repo:      getText('numerRepo, numer_repo, identyfikator'),
-      KW:              getText('numerKW, KW, ksiegaWieczysta'),
-      nabywca_typ:     getText('typNabywcy, nabywca_typ, nabywca') || 'Osoba fizyczna',
-      dzielnica:       getText('dzielnica, jednostkaEwidencyjna'),
-      forma_nabycia:   getText('formaAktu, forma_nabycia'),
-      _lat:            latlon[0],
-      _lon:            latlon[1],
-    });
+    const marker = L.marker([lat, lon], { icon: makeIcon(r.nabywca_typ) });
+    marker.bindPopup(makePopup(r), { maxWidth: 320 });
+    mapState.allMarkers.push({ marker, record: r });
+    mapState.cluster.addLayer(marker);
   });
 
-  return records;
+  document.getElementById('mapCount').textContent =
+    mapState.allMarkers.length.toLocaleString('pl-PL');
+
+  // Fit bounds to markers
+  if (mapState.allMarkers.length > 0) {
+    mapState.map.fitBounds(mapState.cluster.getBounds(), { padding: [30, 30], maxZoom: 16 });
+  }
 }
 
-// ── Parse GeoJSON feature collection ─────────────────────────
-function parseGeoJSON(obj) {
-  if (!obj || !obj.features) return [];
-  return obj.features.map(f => {
+// ── WFS fetch helpers ─────────────────────────────────────────
+function wfsURL(base, typeName, fmt) {
+  const { minX, minY, maxX, maxY } = BP_BBOX;
+  return `${base}?SERVICE=WFS&REQUEST=GetFeature&VERSION=2.0.0` +
+    `&TYPENAMES=${typeName}&SRSNAME=urn:ogc:def:crs:EPSG::2180` +
+    `&BBOX=${minX},${minY},${maxX},${maxY},urn:ogc:def:crs:EPSG::2180` +
+    `&outputFormat=${encodeURIComponent(fmt)}&count=2000`;
+}
+
+function parseGeoJSON(gj) {
+  if (!gj || !Array.isArray(gj.features)) return [];
+  return gj.features.map(f => {
     const p = f.properties || {};
     let latlon = null;
-    if (f.geometry && f.geometry.type === 'Point') {
+    if (f.geometry?.type === 'Point') {
       const [x, y] = f.geometry.coordinates;
-      // Decide if coordinates are already WGS84 or EPSG:2180
-      latlon = (Math.abs(x) < 180 && Math.abs(y) < 90)
-        ? [y, x]
-        : toWGS84(x, y);
+      latlon = (Math.abs(x) < 180) ? [y, x] : toWGS84(x, y);
     }
     if (!latlon) return null;
-    return {
-      data_transakcji: p.dataTransakcji || p.data_transakcji || p.dataWpisania || null,
-      powierzchnia_m2: parseFloat(p.powierzchnia || p.powierzchnia_m2) || null,
-      cena:            parseFloat(p.cena || p.cenaTransakcji) || null,
-      cena_za_m2:      parseFloat(p.cenaZaM2 || p.cena_za_m2) || null,
-      numer_repo:      p.numerRepo || p.numer_repo || p.identyfikator || null,
-      KW:              p.numerKW || p.KW || p.ksiegaWieczysta || null,
-      nabywca_typ:     p.typNabywcy || p.nabywca_typ || 'Osoba fizyczna',
-      dzielnica:       p.dzielnica || p.jednostkaEwidencyjna || null,
-      forma_nabycia:   p.formaAktu || p.forma_nabycia || null,
-      _lat:            latlon[0],
-      _lon:            latlon[1],
-    };
+    return normalize(p, latlon);
   }).filter(Boolean);
 }
 
-// ── Fetch from WFS ────────────────────────────────────────────
-async function fetchWFS(endpoint) {
-  const { minX, minY, maxX, maxY } = KRAKOW_BBOX_2180;
-  const params = new URLSearchParams({
-    SERVICE:    'WFS',
-    REQUEST:    'GetFeature',
-    VERSION:    '2.0.0',
-    TYPENAMES:  endpoint.typeName,
-    BBOX:       `${minX},${minY},${maxX},${maxY},urn:ogc:def:crs:EPSG::2180`,
-    outputFormat: 'application/json',
-    count:      '500',
-    SRSNAME:    'urn:ogc:def:crs:EPSG::2180',
-  });
-
-  // Try JSON first
-  const url = `${endpoint.url}?${params}`;
-  const resp = await fetch(url, { signal: AbortSignal.timeout(15000) });
-  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-  const ct = resp.headers.get('content-type') || '';
-  if (ct.includes('json')) {
-    return parseGeoJSON(await resp.json());
+function parseGML(txt) {
+  // Minimal GML parser: extract pos coordinates and property elements
+  const records = [];
+  const memberRe = /<(?:wfs:)?(?:member|featureMember)>([\s\S]*?)<\/(?:wfs:)?(?:member|featureMember)>/g;
+  let m;
+  while ((m = memberRe.exec(txt)) !== null) {
+    const chunk = m[1];
+    const pos = chunk.match(/<(?:\w+:)?pos>([\s\S]*?)<\/(?:\w+:)?pos>/);
+    if (!pos) continue;
+    const parts = pos[1].trim().split(/\s+/).map(Number);
+    if (parts.length < 2) continue;
+    const latlon = toWGS84(parts[0], parts[1]);
+    if (!latlon) continue;
+    const getTag = tag => {
+      const re = new RegExp(`<(?:\\w+:)?${tag}[^>]*>([^<]*)<`, 'i');
+      const hit = chunk.match(re);
+      return hit ? hit[1].trim() : null;
+    };
+    records.push(normalize({
+      dataTransakcji:      getTag('dataTransakcji') || getTag('data_transakcji'),
+      rodzajNieruchomosci: getTag('rodzajNieruchomosci') || getTag('rodzaj'),
+      ulica:               getTag('ulica'),
+      numerDzialki:        getTag('numerDzialki') || getTag('nrDzialki'),
+      powierzchnia:        getTag('powierzchnia'),
+      cena:                getTag('cena') || getTag('cenaTransakcji'),
+      cenaZaM2:            getTag('cenaZaM2') || getTag('cena_za_m2'),
+      typNabywcy:          getTag('typNabywcy') || getTag('nabywca_typ'),
+      formaAktu:           getTag('formaAktu') || getTag('forma_nabycia'),
+      numerRepo:           getTag('numerRepo') || getTag('identyfikator'),
+      numerKW:             getTag('numerKW') || getTag('KW'),
+    }, latlon));
   }
-  // Fall back to GML parsing
-  params.set('outputFormat', 'application/gml+xml; version=3.2');
-  const respGML = await fetch(`${endpoint.url}?${params}`, { signal: AbortSignal.timeout(15000) });
-  return parseGML(await respGML.text());
+  return records;
 }
 
-// ── Public: load data onto map ────────────────────────────────
-function loadMapData(records) {
-  initMap();
-  mapState.allMarkers = [];
-  mapState.clusterGroup.clearLayers();
-
-  records.forEach(r => {
-    if (!r._lat || !r._lon) return;
-    const marker = L.marker([r._lat, r._lon], { icon: makeIcon(r.nabywca_typ) });
-    marker.bindPopup(buildPopup(r), { maxWidth: 340 });
-    mapState.allMarkers.push({ marker, record: r });
-  });
-
-  applyMapFilter();
+function normalize(p, latlon) {
+  const g = (...keys) => { for (const k of keys) { const v = p[k] ?? p[k?.toLowerCase()]; if (v != null && v !== '') return String(v).trim(); } return null; };
+  const cena = parseFloat(g('cena','cenaTransakcji')) || null;
+  const area = parseFloat(g('powierzchnia','powierzchnia_m2','pole')) || null;
+  return {
+    data_transakcji: g('dataTransakcji','data_transakcji','dataWpisania'),
+    rodzaj:          g('rodzajNieruchomosci','rodzaj','typ') || 'grunt',
+    ulica:           g('ulica','adres','nazwaUlicy'),
+    dzielnica:       g('dzielnica','jednostkaEwidencyjna','obreb'),
+    numer_dzialki:   g('numerDzialki','nrDzialki','identyfikatorDzialki'),
+    powierzchnia_m2: area,
+    cena:            cena,
+    cena_za_m2:      cena && area ? Math.round(cena / area) : parseFloat(g('cenaZaM2','cena_za_m2')) || null,
+    nabywca_typ:     g('typNabywcy','nabywca_typ','nabywca') || 'Osoba fizyczna',
+    forma_nabycia:   g('formaAktu','forma_nabycia','formaPrawna'),
+    numer_repo:      g('numerRepo','numer_repo','identyfikator'),
+    KW:              g('numerKW','KW','ksiegaWieczysta'),
+    zrodlo:          'GUGiK RCN',
+    _lat:            latlon[0],
+    _lon:            latlon[1],
+  };
 }
 
-// ── Public: apply map filter ──────────────────────────────────
-function applyMapFilter() {
-  const buyerFilter  = document.getElementById('mapFilterBuyer').value;
-  const priceFilter  = parseFloat(document.getElementById('mapFilterPriceM2').value) || 0;
-
-  mapState.clusterGroup.clearLayers();
-  let count = 0;
-
-  mapState.allMarkers.forEach(({ marker, record: r }) => {
-    if (buyerFilter && r.nabywca_typ !== buyerFilter) return;
-    if (priceFilter && (r.cena_za_m2 || 0) < priceFilter) return;
-    mapState.clusterGroup.addLayer(marker);
-    count++;
-  });
-
-  document.getElementById('mapCount').textContent = count.toLocaleString('pl-PL');
-}
-
-// ── Public: try live WFS fetch ────────────────────────────────
+// ── Public: try all WFS endpoints ────────────────────────────
 async function tryFetchLiveData(onSuccess, onError, onStatus) {
-  for (const endpoint of WFS_ENDPOINTS) {
+  for (const ep of WFS_ENDPOINTS) {
     try {
-      onStatus(`Próba połączenia: ${endpoint.url} (${endpoint.typeName})…`);
-      const records = await fetchWFS(endpoint);
-      if (records.length > 0) {
-        onSuccess(records, endpoint);
-        return;
+      onStatus(`Próba: ${ep.typeName}…`);
+      // Try JSON
+      const r1 = await fetch(wfsURL(ep.url, ep.typeName, 'application/json'),
+        { signal: AbortSignal.timeout(15000) });
+      if (r1.ok) {
+        const ct = r1.headers.get('content-type') || '';
+        if (ct.includes('json')) {
+          const recs = parseGeoJSON(await r1.json());
+          if (recs.length > 0) { onSuccess(recs, ep); return; }
+        }
       }
-      onStatus(`Brak danych z ${endpoint.typeName}, próba kolejnego…`);
-    } catch (err) {
-      onStatus(`Błąd: ${err.message} – próba kolejnego endpointu…`);
+      // Try GML
+      const r2 = await fetch(wfsURL(ep.url, ep.typeName, 'application/gml+xml; version=3.2'),
+        { signal: AbortSignal.timeout(15000) });
+      if (r2.ok) {
+        const txt = await r2.text();
+        if (txt.includes('FeatureCollection')) {
+          const recs = parseGML(txt);
+          if (recs.length > 0) { onSuccess(recs, ep); return; }
+        }
+      }
+    } catch (e) {
+      onStatus(`${ep.typeName}: ${e.message}`);
     }
   }
-  onError('Nie udało się pobrać danych z serwisów GUGiK (CORS lub brak dostępu). Użyto danych testowych.');
+  onError('Wszystkie endpointy WFS niedostępne z przeglądarki (CORS). Uruchom npm start.');
 }

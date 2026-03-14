@@ -230,45 +230,34 @@ body {
 
 /* ===== Map ===== */
 #krakowMap {
-  height: 580px;
+  height: 600px;
   border-radius: var(--radius);
   overflow: hidden;
   box-shadow: var(--shadow);
   z-index: 1;
+  /* CRITICAL: must not be hidden when Leaflet initializes */
 }
-.map-toolbar {
-  margin-bottom: 12px;
-  padding: 14px 18px;
-}
-.map-toolbar-inner {
+.map-topbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  margin-bottom: 10px;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 10px;
 }
-.map-legend { display: flex; align-items: center; gap: 6px; font-size: 13px; }
-.legend-dot {
+.map-legend { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ldot {
   display: inline-block;
-  width: 14px; height: 14px;
+  width: 13px; height: 13px;
   border-radius: 50%;
   border: 2px solid #fff;
-  box-shadow: 0 0 0 1.5px #999;
+  box-shadow: 0 0 0 1.5px #aaa;
 }
-.legend-dot--fizyczna { background: var(--blue); }
-.legend-dot--prawna   { background: var(--red); }
-.map-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; }
-.map-filters select,
-.map-filters input[type="number"] {
-  border: 1.5px solid var(--gray-200);
-  border-radius: 7px;
-  padding: 5px 9px;
-  font-size: 13px;
-  outline: none;
-}
-.map-filters select:focus,
-.map-filters input:focus { border-color: var(--blue); }
-.map-count { margin-left: auto; font-size: 13px; color: var(--gray-600); }
-.map-source-note { font-size: 11px; color: var(--gray-400); margin-top: 8px; text-align: right; }
+.ldot--blue { background: var(--blue); }
+.ldot--red  { background: var(--red); }
+.map-count  { font-size: 13px; color: var(--gray-600); }
+.map-credit { font-size: 11px; color: var(--gray-400); text-align: right; margin-top: 6px; }
 
 /* Cluster icons */
 .cluster-icon {
@@ -286,7 +275,7 @@ body {
 .cluster-icon--lg { width: 48px; height: 48px; font-size: 15px; background: var(--red); }
 
 /* Leaflet popup */
-.rcn-popup { font-size: 13px; min-width: 280px; }
+.rcn-popup { font-size: 13px; min-width: 270px; }
 .rcn-popup-title {
   font-weight: 700;
   font-size: 14px;
@@ -296,11 +285,13 @@ body {
   justify-content: space-between;
   gap: 8px;
 }
-.rcn-popup-table { width: 100%; border-collapse: collapse; }
-.rcn-popup-table td { padding: 4px 6px; vertical-align: top; }
-.rcn-popup-table td:first-child { color: var(--gray-400); white-space: nowrap; padding-right: 10px; }
-.rcn-popup-table code { background: var(--gray-100); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-.popup-kw td { background: #fff7ed; font-weight: 600; }
+.rp-table { width: 100%; border-collapse: collapse; }
+.rp-table td { padding: 3px 6px; vertical-align: top; }
+.rp-table td:first-child { color: var(--gray-400); white-space: nowrap; padding-right: 10px; font-size: 12px; }
+.rp-table code { background: var(--gray-100); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+.kw-row td { background: #fff7ed; }
+
+.empty-row { text-align: center; padding: 32px; color: var(--gray-400); }
 
 /* ===== Table ===== */
 .table-card { padding: 0; overflow: hidden; }
@@ -383,6 +374,8 @@ tbody td { padding: 10px 14px; white-space: nowrap; }
   gap: 8px;
 }
 .pagination-btns { display: flex; gap: 4px; }
+.pg-btns { display: flex; gap: 4px; }
+.pg-dots { padding: 0 4px; line-height: 32px; }
 .pg-btn {
   width: 32px; height: 32px;
   border-radius: 6px;
