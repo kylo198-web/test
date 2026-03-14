@@ -345,9 +345,30 @@ function renderCharts(data) {
   }
 }
 
+// ── Demo warning banner ───────────────────────────────────────
+function showDemoBanner(show) {
+  let el = document.getElementById('demoBanner');
+  if (show) {
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'demoBanner';
+      el.className = 'demo-banner';
+      el.innerHTML = '⚠️ DANE DEMONSTRACYJNE – pineski są przykładowe, nie rzeczywiste! ' +
+        'Aby zobaczyć prawdziwe dane RCN: <code>npm install &amp;&amp; npm start</code> → ' +
+        '<a href="http://localhost:3000" target="_blank">localhost:3000</a>';
+      document.getElementById('mapWrap').appendChild(el);
+    }
+    el.style.display = '';
+  } else if (el) {
+    el.style.display = 'none';
+  }
+}
+
 // ── Load data ──────────────────────────────────────────────────
 function loadData(data, label) {
   if (!data?.length) { setStatus('Brak danych.', 'error'); return; }
+
+  const isDemo = label.includes('demonstracyjne') || label.includes('demonstracyjnych');
 
   // Normalise numeric fields and assign IDs
   let idCtr = 1;
@@ -370,26 +391,46 @@ function loadData(data, label) {
   if (emptyEl) emptyEl.classList.add('hidden');
   document.getElementById('btnExportCSV').style.display = '';
 
+  showDemoBanner(isDemo);
+
   try { populateFilters(data); } catch(e) { console.error('populateFilters', e); }
   try { renderStats(data);     } catch(e) { console.error('renderStats', e); }
   try { renderList();          } catch(e) { console.error('renderList', e); }
   try { loadMapData(data);     } catch(e) { console.error('loadMapData', e); }
 
-  setStatus(`✓ Załadowano ${data.length.toLocaleString('pl-PL')} transakcji (${label})`, 'success');
+  if (isDemo) {
+    setStatus(
+      '⚠️ Dane demonstracyjne — NIE są to prawdziwe transakcje RCN!\n' +
+      'Prawdziwe dane: npm install && npm start → http://localhost:3000',
+      'error'
+    );
+  } else {
+    setStatus(`✓ Załadowano ${data.length.toLocaleString('pl-PL')} transakcji (${label})`, 'success');
+  }
 }
 
 // ── Sample data ────────────────────────────────────────────────
 function generateSampleData(n = 300) {
-  // Street centerpoints verified against OSM; r = max offset ~150–250 m
+  // Street centerpoints from OSM Nominatim (verified).
+  // r = max random offset in degrees — VERY SMALL (≈30 m) so pins stay on correct street.
+  // DO NOT increase r: larger values cause pins to land on neighbouring streets.
   const streets = [
-    { name: 'ul. Konrada Wallenroda',       clat: 50.0042, clon: 20.0368, r: 0.0018, base: 1100 },
-    { name: 'ul. ks. Piotra Ściegiennego',  clat: 50.0138, clon: 19.9845, r: 0.0022, base: 1050 },
-    { name: 'ul. Prokocimska',              clat: 50.0142, clon: 19.9988, r: 0.0020, base: 1000 },
-    { name: 'ul. Bieżanowska',              clat: 50.0058, clon: 20.0195, r: 0.0022, base:  980 },
-    { name: 'ul. Wielicka',                 clat: 50.0102, clon: 20.0028, r: 0.0035, base: 1150 },
-    { name: 'ul. Christo Botewa',           clat: 50.0182, clon: 19.9902, r: 0.0018, base: 1020 },
-    { name: 'ul. Turniejowa',               clat: 50.0112, clon: 19.9672, r: 0.0022, base:  960 },
-    { name: 'ul. Łużycka',                  clat: 50.0065, clon: 20.0448, r: 0.0018, base:  950 },
+    // Nowy Bieżanów – NE part of district
+    { name: 'ul. Konrada Wallenroda',       clat: 50.0038, clon: 20.0372, r: 0.0003, base: 1100 },
+    // Prokocim – ul. Ściegiennego runs N–S, center ~50.016°N 19.984°E
+    { name: 'ul. ks. Piotra Ściegiennego',  clat: 50.0160, clon: 19.9840, r: 0.0003, base: 1050 },
+    // Prokocimska – main E–W artery through Prokocim
+    { name: 'ul. Prokocimska',              clat: 50.0148, clon: 19.9985, r: 0.0003, base: 1000 },
+    // Bieżanowska – main N–S road through Bieżanów
+    { name: 'ul. Bieżanowska',              clat: 50.0062, clon: 20.0190, r: 0.0003, base:  980 },
+    // Wielicka – DK94 major road, runs E–W across district
+    { name: 'ul. Wielicka',                 clat: 50.0098, clon: 20.0030, r: 0.0004, base: 1150 },
+    // Christo Botewa – Nowy Prokocim, apartment estate ~500 m NE of Ściegiennego
+    { name: 'ul. Christo Botewa',           clat: 50.0193, clon: 19.9940, r: 0.0003, base: 1020 },
+    // Turniejowa – SW part of district
+    { name: 'ul. Turniejowa',               clat: 50.0108, clon: 19.9668, r: 0.0003, base:  960 },
+    // Łużycka – Eastern Bieżanów
+    { name: 'ul. Łużycka',                  clat: 50.0058, clon: 20.0452, r: 0.0003, base:  950 },
   ];
   const formy    = ['Akt notarialny', 'Przetarg', 'Umowa warunkowa'];
   const rodzaje  = ['Grunt budowlany', 'Dom jednorodzinny', 'Grunt niezabudowany'];
@@ -469,9 +510,9 @@ async function fetchLiveData() {
     },
     () => {
       setStatus(
-        'GUGiK WFS niedostępny z przeglądarki (CORS).\n' +
-        'Uruchom: npm install && npm start → localhost:3000\n' +
-        'Załadowano dane demonstracyjne.',
+        '❌ GUGiK WFS zablokowany przez CORS — przeglądarka nie może bezpośrednio pobrać danych rządowych.\n' +
+        'Rozwiązanie: npm install && npm start → otwórz http://localhost:3000\n' +
+        'Załadowano PRZYKŁADOWE dane demonstracyjne (nie są prawdziwe!).',
         'error'
       );
       loadData(generateSampleData(300), 'dane demonstracyjne');

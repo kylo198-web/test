@@ -256,34 +256,54 @@ function normalize(p, latlon) {
   };
 }
 
-// ── Try all WFS endpoints ────────────────────────────────────
-async function tryFetchLiveData(onSuccess, onError, onStatus) {
-  for (const ep of WFS_ENDPOINTS) {
-    try {
-      onStatus(`Próba: ${ep.typeName}…`);
-      // Try JSON first
-      const r1 = await fetch(wfsURL(ep.url, ep.typeName, 'application/json'),
-        { signal: AbortSignal.timeout(15000) });
-      if (r1.ok) {
-        const ct = r1.headers.get('content-type') || '';
-        if (ct.includes('json')) {
-          const recs = parseGeoJSON(await r1.json());
-          if (recs.length > 0) { onSuccess(recs, ep); return; }
-        }
+// ── Try one endpoint (direct or via CORS proxy) ──────────────
+async function _tryOneEndpoint(ep, proxyPrefix, onStatus) {
+  const label = proxyPrefix ? `[proxy] ${ep.typeName}` : ep.typeName;
+  try {
+    onStatus(`Próba: ${label}…`);
+    const makeUrl = fmt => proxyPrefix
+      ? proxyPrefix + encodeURIComponent(wfsURL(ep.url, ep.typeName, fmt))
+      : wfsURL(ep.url, ep.typeName, fmt);
+
+    // JSON
+    const r1 = await fetch(makeUrl('application/json'), { signal: AbortSignal.timeout(15000) });
+    if (r1.ok) {
+      const ct = r1.headers.get('content-type') || '';
+      if (ct.includes('json')) {
+        const recs = parseGeoJSON(await r1.json());
+        if (recs.length > 0) return recs;
       }
-      // Try GML
-      const r2 = await fetch(wfsURL(ep.url, ep.typeName, 'application/gml+xml; version=3.2'),
-        { signal: AbortSignal.timeout(15000) });
-      if (r2.ok) {
-        const txt = await r2.text();
-        if (txt.includes('FeatureCollection')) {
-          const recs = parseGML(txt);
-          if (recs.length > 0) { onSuccess(recs, ep); return; }
-        }
-      }
-    } catch (e) {
-      onStatus(`${ep.typeName}: ${e.message}`);
     }
+    // GML
+    const r2 = await fetch(makeUrl('application/gml+xml; version=3.2'), { signal: AbortSignal.timeout(15000) });
+    if (r2.ok) {
+      const txt = await r2.text();
+      if (txt.includes('FeatureCollection')) {
+        const recs = parseGML(txt);
+        if (recs.length > 0) return recs;
+      }
+    }
+  } catch (e) {
+    onStatus(`${label}: ${e.message}`);
   }
-  onError('Wszystkie endpointy WFS niedostępne z przeglądarki (CORS). Uruchom npm start.');
+  return null;
+}
+
+// ── Try all WFS endpoints (direct, then via public CORS proxy) ─
+async function tryFetchLiveData(onSuccess, onError, onStatus) {
+  // Pass 1 – direct browser request (works if CORS is open)
+  for (const ep of WFS_ENDPOINTS) {
+    const recs = await _tryOneEndpoint(ep, '', onStatus);
+    if (recs) { onSuccess(recs, ep); return; }
+  }
+
+  // Pass 2 – via corsproxy.io (public CORS proxy, no key needed)
+  onStatus('Próba przez publiczny proxy CORS…');
+  const PROXY = 'https://corsproxy.io/?url=';
+  for (const ep of WFS_ENDPOINTS.slice(0, 2)) {
+    const recs = await _tryOneEndpoint(ep, PROXY, onStatus);
+    if (recs) { onSuccess(recs, ep); return; }
+  }
+
+  onError('WFS GUGiK niedostępny z przeglądarki (CORS). Uruchom: npm install && npm start → http://localhost:3000');
 }

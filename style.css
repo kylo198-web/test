@@ -532,6 +532,33 @@ details.sb-section[open] summary { color: var(--sb-text); }
 .chart-card canvas { max-height: 200px; }
 .chart-wide canvas { max-height: 180px; }
 
+/* ===== Demo data banner ===== */
+.demo-banner {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 600;
+  background: rgba(239,68,68,.93);
+  color: #fff;
+  border-radius: 8px;
+  padding: 9px 18px;
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(239,68,68,.4);
+  pointer-events: all;
+  max-width: 600px;
+  line-height: 1.5;
+}
+.demo-banner code {
+  background: rgba(255,255,255,.2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+.demo-banner a { color: #fde68a; }
+
 /* ===== Utilities ===== */
 .hidden { display: none !important; }
 
