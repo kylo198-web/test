@@ -288,6 +288,7 @@ function exportCSV() {
 // ── Load data ─────────────────────────────────────────────────
 function loadData(data, label) {
   if (!data?.length) { setStatus('Brak danych.', 'error'); return; }
+
   data.forEach(r => {
     ['cena','cena_za_m2','powierzchnia_m2','_lat','_lon'].forEach(k => {
       if (r[k] != null && r[k] !== '') r[k] = Number(r[k]);
@@ -303,13 +304,23 @@ function loadData(data, label) {
   state.sortDir  = 'asc';
 
   document.getElementById('emptyState').classList.add('hidden');
+
+  // Make all tab buttons visible/active
+  document.querySelectorAll('.tab-btn').forEach(b => b.removeAttribute('disabled'));
+
   showTab('dashboard');
-  populateFilters(data);
-  renderKPIs(data);
-  renderCharts(data);
-  renderTableHead();
-  renderPage();
-  loadMapData(data);          // stores in pendingData if map tab not yet visible
+
+  try { populateFilters(data); } catch(e) { console.error('populateFilters', e); }
+  try { renderKPIs(data);      } catch(e) { console.error('renderKPIs', e); }
+  try { renderCharts(data);    } catch(e) { console.error('renderCharts', e); }
+  try { renderTableHead();     } catch(e) { console.error('renderTableHead', e); }
+  try { renderPage();          } catch(e) { console.error('renderPage', e); }
+
+  // Map data — guard in case map.js failed to load
+  try {
+    if (typeof loadMapData === 'function') loadMapData(data);
+  } catch(e) { console.error('loadMapData', e); }
+
   setStatus(`✓ ${data.length.toLocaleString('pl-PL')} transakcji (${label})`, 'success');
 }
 
@@ -321,18 +332,16 @@ function showTab(name) {
   document.getElementById(ids[name])?.classList.remove('hidden');
 
   if (name === 'map') {
-    // Initialize map NOW (div is visible) if not already done
-    if (!mapState.initialized) {
-      initMap();
-    }
-    // Render pending data
-    if (mapState.pendingData) {
-      const d = mapState.pendingData;
-      mapState.pendingData = null;
-      loadMapData(d);
-    }
-    // Fix tile rendering after reveal
-    setTimeout(() => mapState.map?.invalidateSize(), 120);
+    try {
+      if (typeof mapState === 'undefined') return;   // map.js not loaded
+      if (!mapState.initialized) initMap();
+      if (mapState.pendingData) {
+        const d = mapState.pendingData;
+        mapState.pendingData = null;
+        loadMapData(d);
+      }
+      setTimeout(() => mapState.map?.invalidateSize(), 120);
+    } catch(e) { console.error('map tab init', e); }
   }
 }
 
@@ -448,9 +457,9 @@ function handleFile(file) {
 
 // ── Bootstrap ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
-  // Tabs — only switch if data loaded
+  // Tabs — always respond; show empty content if no data yet
   document.querySelectorAll('.tab-btn').forEach(btn =>
-    btn.addEventListener('click', () => { if (state.raw.length) showTab(btn.dataset.tab); })
+    btn.addEventListener('click', () => showTab(btn.dataset.tab))
   );
 
   // Fetch / sample buttons
