@@ -31,10 +31,9 @@
       </div>
     </div>
     <div class="header-actions">
-      <button class="btn btn-primary" id="btnFetchRCN">⬇ Pobierz z GUGiK</button>
-      <button class="btn btn-outline" id="btnFetchWalenroda">ul. Walenroda</button>
-      <button class="btn btn-outline" id="btnFetchSciegiennego">ul. Ściegiennego</button>
-      <label class="btn btn-ghost" for="fileInput">
+      <button class="btn btn-outline" id="btnFetchRCN">⬇ Pobierz z GUGiK</button>
+      <button class="btn btn-outline" id="btnLoadSample">Dane testowe</button>
+      <label class="btn btn-primary" for="fileInput">
         Importuj CSV/JSON
         <input type="file" id="fileInput" accept=".csv,.json" hidden />
       </label>
@@ -56,22 +55,20 @@
   <section class="empty-state" id="emptyState">
     <div class="empty-icon">🏗️</div>
     <h2>Transakcje RCN – Bieżanów-Prokocim</h2>
-    <p>Pobierz prawdziwe dane z GUGiK lub zaimportuj plik CSV/JSON.<br>
-       <em>Dane RCN dostępne od 31 lipca 2021 r.</em></p>
+    <p>Pobierz dane z GUGiK RCN, załaduj dane testowe lub zaimportuj własny plik CSV/JSON.<br>
+       <em>Dane RCN dostępne od 31 lipca 2021 r. · Obszar: Bieżanów-Prokocim, Kraków</em></p>
     <div class="empty-actions">
-      <button class="btn btn-primary btn-lg" id="btnFetchRCNBig">⬇ Pobierz z GUGiK RCN</button>
-      <button class="btn btn-outline btn-lg" id="btnFetchWalenrodaBig">ul. Walenroda</button>
-      <button class="btn btn-outline btn-lg" id="btnFetchSciegiennegoBig">ul. Ściegiennego</button>
+      <button class="btn btn-primary btn-lg" id="btnLoadSampleBig">Dane testowe</button>
+      <button class="btn btn-outline btn-lg" id="btnFetchRCNBig">⬇ Pobierz z GUGiK</button>
       <label class="btn btn-ghost btn-lg" for="fileInput2">
-        Importuj plik
+        Importuj CSV/JSON
         <input type="file" id="fileInput2" accept=".csv,.json" hidden />
       </label>
     </div>
     <div class="format-info">
-      <strong>Uruchom serwer lokalnie:</strong><br>
-      <code>npm install &amp;&amp; npm start</code> → otwórz http://localhost:3000<br><br>
-      <strong>Pola CSV:</strong> data_transakcji, rodzaj, ulica, dzielnica, numer_dzialki,
-      powierzchnia_m2, cena, cena_za_m2, nabywca_typ, forma_nabycia, numer_repo, KW, _lat, _lon
+      <strong>Dane testowe</strong> — realistyczne transakcje Bieżanów-Prokocim, gotowe od razu.<br>
+      <strong>Pobierz z GUGiK</strong> — wymaga serwera: <code>npm install &amp;&amp; npm start</code> → localhost:3000<br>
+      <strong>Importuj CSV</strong> — pobierz ręcznie z <a href="https://www.geoportal.gov.pl/mapy/rejestr-cen-nieruchomosci/" target="_blank">geoportal.gov.pl</a> i wgraj tutaj.
     </div>
   </section>
 

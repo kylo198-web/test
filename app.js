@@ -336,38 +336,96 @@ function showTab(name) {
   }
 }
 
-// ── Fetch live data ───────────────────────────────────────────
-async function fetchLiveData(streetFilter) {
+// ── Sample data (Bieżanów-Prokocim, realistic) ───────────────
+function generateSampleData(n = 300) {
+  const streets = [
+    { name: 'ul. Konrada Walenroda',      lat: [50.000, 50.010], lon: [20.000, 20.015], base: 1100 },
+    { name: 'ul. ks. Piotra Ściegiennego', lat: [50.012, 50.025], lon: [19.968, 19.985], base: 1050 },
+    { name: 'ul. Prokocimska',              lat: [50.005, 50.020], lon: [19.975, 19.995], base: 1000 },
+    { name: 'ul. Bieżanowska',              lat: [49.998, 50.010], lon: [20.010, 20.030], base: 980  },
+    { name: 'ul. Wielicka',                 lat: [50.008, 50.018], lon: [19.980, 20.005], base: 1150 },
+    { name: 'ul. Christo Botewa',           lat: [50.015, 50.025], lon: [19.990, 20.010], base: 1020 },
+    { name: 'ul. Turniejowa',               lat: [50.002, 50.012], lon: [19.965, 19.985], base: 960  },
+    { name: 'ul. Łużycka',                  lat: [50.010, 50.020], lon: [20.015, 20.035], base: 950  },
+  ];
+  const formy    = ['Akt notarialny', 'Przetarg', 'Umowa warunkowa'];
+  const rodzaje  = ['Grunt budowlany', 'Dom jednorodzinny', 'Grunt niezabudowany'];
+  const rows = [];
+  const now  = new Date(2026, 2, 14);
+
+  for (let i = 1; i <= n; i++) {
+    const s         = streets[Math.floor(Math.random() * streets.length)];
+    const lat       = s.lat[0] + Math.random() * (s.lat[1] - s.lat[0]);
+    const lon       = s.lon[0] + Math.random() * (s.lon[1] - s.lon[0]);
+    const area      = Math.round(250 + Math.random() * 1800);
+    const priceM2   = Math.round(s.base * (0.82 + Math.random() * 0.36));
+    const isPrawna  = Math.random() < 0.16;
+    const daysAgo   = Math.floor(Math.random() * 1200); // ~3.3 years back from 2026
+    const date      = new Date(now); date.setDate(date.getDate() - daysAgo);
+    const repoNum   = `KR.${Math.floor(1000 + Math.random()*9000)}.${date.getFullYear()}`;
+
+    rows.push({
+      data_transakcji: date.toISOString().slice(0, 10),
+      rodzaj:          rodzaje[Math.floor(Math.random() * rodzaje.length)],
+      ulica:           s.name,
+      dzielnica:       'Bieżanów-Prokocim',
+      numer_dzialki:   `${Math.floor(100 + Math.random()*900)}/${Math.floor(1+Math.random()*9)}`,
+      powierzchnia_m2: area,
+      cena:            Math.round(priceM2 * area),
+      cena_za_m2:      priceM2,
+      nabywca_typ:     isPrawna ? 'Osoba prawna' : 'Osoba fizyczna',
+      forma_nabycia:   formy[Math.floor(Math.random() * formy.length)],
+      numer_repo:      repoNum,
+      KW:              isPrawna ? `KR1P/${Math.floor(10000+Math.random()*90000)}/0` : null,
+      zrodlo:          'Dane demonstracyjne',
+      _lat:            lat,
+      _lon:            lon,
+    });
+  }
+  return rows;
+}
+
+// ── Fetch live data from GUGiK ────────────────────────────────
+async function fetchLiveData() {
   const btn = document.getElementById('btnFetchRCN');
   btn.disabled = true;
   btn.textContent = '⏳ Pobieranie…';
-  const sfx = streetFilter === 'walenroda' ? ' – ul. Walenroda' : streetFilter === 'sciegiennego' ? ' – ul. Ściegiennego' : '';
-  setStatus(`Łączenie z GUGiK RCN${sfx}…`);
+  setStatus('Łączenie z GUGiK RCN…');
 
-  // 1. Local Node.js proxy
+  // 1. Try local Node.js proxy (npm start)
   try {
-    const url  = streetFilter ? `/api/rcn?street=${streetFilter}` : '/api/rcn';
-    const resp = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const resp = await fetch('/api/rcn', { signal: AbortSignal.timeout(8000) });
     if (resp.ok) {
       const json = await resp.json();
       if (json.ok && json.records?.length > 0) {
-        loadData(json.records, `GUGiK RCN${sfx} (${json.count})`);
+        loadData(json.records, `GUGiK RCN WFS (${json.count} rekordów)`);
         btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
         return;
       }
       if (json.ok) {
-        setStatus(`Proxy OK, GUGiK zwrócił 0 rekordów${sfx}. Sprawdź /api/capabilities`, 'error');
+        setStatus('Serwer proxy działa ale GUGiK zwrócił 0 rekordów. Sprawdź /api/capabilities.', 'error');
         btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK'; return;
       }
     }
-  } catch (_) {
-    setStatus(`Serwer proxy niedostępny. Próba bezpośrednio z WFS…`);
-  }
+  } catch (_) { /* proxy not running */ }
 
-  // 2. Direct WFS from browser (CORS fallback)
+  // 2. Direct WFS from browser
   await tryFetchLiveData(
-    (records, ep) => { loadData(records, `WFS ${ep.typeName}${sfx}`); btn.disabled=false; btn.textContent='⬇ Pobierz z GUGiK'; },
-    err => { setStatus(err, 'error'); btn.disabled=false; btn.textContent='⬇ Pobierz z GUGiK'; },
+    (records, ep) => {
+      loadData(records, `GUGiK WFS ${ep.typeName}`);
+      btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
+    },
+    () => {
+      setStatus(
+        'GUGiK WFS blokuje zapytania z przeglądarki (CORS). ' +
+        'Aby pobrać prawdziwe dane uruchom: npm install && npm start, ' +
+        'lub pobierz CSV z geoportal.gov.pl i użyj "Importuj CSV/JSON". ' +
+        'Na razie załadowano dane demonstracyjne.',
+        'error'
+      );
+      loadData(generateSampleData(300), 'dane demonstracyjne');
+      btn.disabled = false; btn.textContent = '⬇ Pobierz z GUGiK';
+    },
     msg => setStatus(msg),
   );
 }
@@ -395,13 +453,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btn.addEventListener('click', () => { if (state.raw.length) showTab(btn.dataset.tab); })
   );
 
-  // Fetch buttons
-  document.getElementById('btnFetchRCN').addEventListener('click', () => fetchLiveData());
-  document.getElementById('btnFetchRCNBig').addEventListener('click', () => fetchLiveData());
-  document.getElementById('btnFetchWalenroda').addEventListener('click', () => fetchLiveData('walenroda'));
-  document.getElementById('btnFetchSciegiennego').addEventListener('click', () => fetchLiveData('sciegiennego'));
-  document.getElementById('btnFetchWalenrodaBig').addEventListener('click', () => fetchLiveData('walenroda'));
-  document.getElementById('btnFetchSciegiennegoBig').addEventListener('click', () => fetchLiveData('sciegiennego'));
+  // Fetch / sample buttons
+  document.getElementById('btnFetchRCN').addEventListener('click', fetchLiveData);
+  document.getElementById('btnFetchRCNBig').addEventListener('click', fetchLiveData);
+  document.getElementById('btnLoadSample').addEventListener('click', () => loadData(generateSampleData(300), 'dane demonstracyjne'));
+  document.getElementById('btnLoadSampleBig').addEventListener('click', () => loadData(generateSampleData(300), 'dane demonstracyjne'));
 
   // File inputs
   ['fileInput','fileInput2'].forEach(id =>
