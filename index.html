@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Analizator Ofert RCN</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+</head>
+<body>
+  <header class="header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-badge">RCN</span>
+        <div>
+          <h1>Analizator Ofert RCN</h1>
+          <p>Rejestr Cen Nieruchomości – Polska</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button class="btn btn-outline" id="btnLoadSample">Załaduj dane testowe</button>
+        <label class="btn btn-primary" for="fileInput">
+          Importuj CSV / JSON
+          <input type="file" id="fileInput" accept=".csv,.json" hidden />
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="container">
+
+    <!-- Upload / empty state -->
+    <section class="empty-state" id="emptyState">
+      <div class="empty-icon">📊</div>
+      <h2>Wczytaj dane ofert RCN</h2>
+      <p>Załaduj plik CSV lub JSON eksportowany z bazy RCN albo skorzystaj z danych testowych.</p>
+      <div class="empty-actions">
+        <button class="btn btn-primary btn-lg" id="btnLoadSampleBig">Załaduj dane testowe</button>
+        <label class="btn btn-outline btn-lg" for="fileInput2">
+          Importuj plik
+          <input type="file" id="fileInput2" accept=".csv,.json" hidden />
+        </label>
+      </div>
+      <div class="format-info">
+        <strong>Obsługiwane kolumny:</strong>
+        id, data_oferty, typ_nieruchomosci, wojewodztwo, miasto, dzielnica, powierzchnia_m2, cena, cena_za_m2, liczba_pokoi, rok_budowy, stan_techniczny
+      </div>
+    </section>
+
+    <!-- Dashboard -->
+    <section class="dashboard hidden" id="dashboard">
+
+      <!-- KPI cards -->
+      <div class="kpi-grid" id="kpiGrid"></div>
+
+      <!-- Filters -->
+      <div class="filters-bar card">
+        <h3>Filtry</h3>
+        <div class="filters-row">
+          <div class="filter-group">
+            <label>Typ nieruchomości</label>
+            <select id="filterType" multiple></select>
+          </div>
+          <div class="filter-group">
+            <label>Województwo</label>
+            <select id="filterVoivodeship" multiple></select>
+          </div>
+          <div class="filter-group">
+            <label>Cena (PLN)</label>
+            <div class="range-inputs">
+              <input type="number" id="filterPriceMin" placeholder="Min" />
+              <span>–</span>
+              <input type="number" id="filterPriceMax" placeholder="Max" />
+            </div>
+          </div>
+          <div class="filter-group">
+            <label>Powierzchnia (m²)</label>
+            <div class="range-inputs">
+              <input type="number" id="filterAreaMin" placeholder="Min" />
+              <span>–</span>
+              <input type="number" id="filterAreaMax" placeholder="Max" />
+            </div>
+          </div>
+          <div class="filter-group filter-group--actions">
+            <button class="btn btn-primary" id="btnApplyFilters">Zastosuj</button>
+            <button class="btn btn-ghost" id="btnResetFilters">Resetuj</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Charts -->
+      <div class="charts-grid">
+        <div class="card chart-card">
+          <h3>Cena za m² według województwa</h3>
+          <canvas id="chartPriceByVoivodeship"></canvas>
+        </div>
+        <div class="card chart-card">
+          <h3>Liczba ofert według typu nieruchomości</h3>
+          <canvas id="chartOffersByType"></canvas>
+        </div>
+        <div class="card chart-card chart-card--wide">
+          <h3>Trend cen w czasie</h3>
+          <canvas id="chartPriceTrend"></canvas>
+        </div>
+        <div class="card chart-card">
+          <h3>Rozkład powierzchni (m²)</h3>
+          <canvas id="chartAreaDist"></canvas>
+        </div>
+        <div class="card chart-card">
+          <h3>Stan techniczny nieruchomości</h3>
+          <canvas id="chartCondition"></canvas>
+        </div>
+      </div>
+
+      <!-- Data table -->
+      <div class="card table-card">
+        <div class="table-header">
+          <h3>Oferty <span class="badge" id="tableCount">0</span></h3>
+          <div class="table-actions">
+            <input type="text" id="tableSearch" placeholder="Szukaj..." class="search-input" />
+            <button class="btn btn-outline btn-sm" id="btnExportCSV">Eksportuj CSV</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table id="offersTable">
+            <thead id="offersTableHead"></thead>
+            <tbody id="offersTableBody"></tbody>
+          </table>
+        </div>
+        <div class="table-pagination" id="pagination"></div>
+      </div>
+
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>Analizator Ofert RCN &copy; 2026 &mdash; dane pochodzą z Rejestru Cen Nieruchomości</p>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
