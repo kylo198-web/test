@@ -103,12 +103,14 @@ function buildPopup(r) {
   return `
     <div class="rcn-popup">
       <div class="rcn-popup-title">
-        Działka budowlana
+        ${r.rodzaj || 'Grunt / działka'}
         <span class="pill ${isPrawna ? 'pill--red' : 'pill--blue'}">${r.nabywca_typ || '—'}</span>
       </div>
       <table class="rcn-popup-table">
         <tr><td>Data transakcji</td><td><strong>${r.data_transakcji || '—'}</strong></td></tr>
+        <tr><td>Ulica</td><td>${r.ulica || '—'}</td></tr>
         <tr><td>Dzielnica</td><td>${r.dzielnica || '—'}</td></tr>
+        <tr><td>Nr działki</td><td><code>${r.numer_dzialki || '—'}</code></td></tr>
         <tr><td>Powierzchnia</td><td><strong>${fmtNum(r.powierzchnia_m2)} m²</strong></td></tr>
         <tr><td>Cena</td><td><strong>${fmtPLN(r.cena)}</strong></td></tr>
         <tr><td>Cena / m²</td><td><strong>${fmtPLN(r.cena_za_m2)}</strong></td></tr>
@@ -116,6 +118,7 @@ function buildPopup(r) {
         <tr><td>Nr w repozytorium</td><td><code>${r.numer_repo || '—'}</code></td></tr>
         ${kwRow}
       </table>
+      <div style="font-size:10px;color:#9ca3af;margin-top:6px">Źródło: ${r.zrodlo || 'GUGiK RCN'}</div>
     </div>`;
 }
 

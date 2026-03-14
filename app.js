@@ -8,7 +8,10 @@
 // ── Column definitions for table ─────────────────────────────
 const COLUMNS = [
   { key: 'data_transakcji',  label: 'Data transakcji' },
+  { key: 'rodzaj',           label: 'Rodzaj' },
+  { key: 'ulica',            label: 'Ulica' },
   { key: 'dzielnica',        label: 'Dzielnica' },
+  { key: 'numer_dzialki',    label: 'Nr działki' },
   { key: 'powierzchnia_m2',  label: 'Pow. (m²)',        num: true },
   { key: 'cena',             label: 'Cena (PLN)',        num: true, currency: true },
   { key: 'cena_za_m2',       label: 'Cena/m² (PLN)',    num: true, currency: true },
@@ -16,6 +19,7 @@ const COLUMNS = [
   { key: 'forma_nabycia',    label: 'Forma nabycia' },
   { key: 'numer_repo',       label: 'Nr repozytorium' },
   { key: 'KW',               label: 'Nr KW' },
+  { key: 'zrodlo',           label: 'Źródło' },
 ];
 
 // ── App state ─────────────────────────────────────────────────
@@ -488,26 +492,56 @@ function handleFile(file) {
   reader.readAsText(file, 'UTF-8');
 }
 
-// ── Fetch live data from GUGiK WFS ────────────────────────────
-async function fetchLiveData() {
+// ── Fetch live data: backend proxy → direct WFS ───────────────
+async function fetchLiveData(streetFilter) {
   const btn = document.getElementById('btnFetchRCN');
   btn.disabled = true;
-  btn.textContent = '⏳ Pobieranie…';
-  setStatus('Łączenie z serwisem GUGiK RCN (WFS)…');
 
+  const streetLabel = streetFilter === 'walenroda'     ? ' – ul. Walenroda'
+                    : streetFilter === 'sciegiennego'  ? ' – ul. Ściegiennego'
+                    : '';
+
+  btn.textContent = '⏳ Pobieranie…';
+  setStatus(`Łączenie z GUGiK RCN${streetLabel}…`);
+
+  // 1. Try local backend proxy (server.js)
+  try {
+    const url   = streetFilter ? `/api/rcn?street=${streetFilter}` : '/api/rcn';
+    const resp  = await fetch(url, { signal: AbortSignal.timeout(30000) });
+    const json  = await resp.json();
+    if (json.ok && json.records?.length > 0) {
+      loadData(json.records, `GUGiK RCN WFS${streetLabel} (${json.count} rekordów)`);
+      btn.disabled = false;
+      btn.innerHTML = '⬇ Pobierz dane RCN (GUGiK)';
+      return;
+    }
+    if (json.ok && json.records?.length === 0) {
+      setStatus(`Serwer proxy działa, ale GUGiK zwrócił 0 rekordów dla obszaru${streetLabel}. Sprawdź /api/capabilities.`, 'error');
+      btn.disabled = false;
+      btn.innerHTML = '⬇ Pobierz dane RCN (GUGiK)';
+      return;
+    }
+  } catch (e) {
+    setStatus(`Serwer proxy niedostępny (${e.message}). Próba bezpośredniego połączenia z WFS…`);
+  }
+
+  // 2. Fallback: try WFS directly from browser (may fail due to CORS)
   await tryFetchLiveData(
     (records, endpoint) => {
-      loadData(records, `GUGiK WFS (${endpoint.typeName})`);
+      loadData(records, `GUGiK WFS bezpośredni (${endpoint.typeName})${streetLabel}`);
       btn.disabled = false;
-      btn.innerHTML = '<span id="fetchIcon">⬇</span> Pobierz dane z GUGiK';
+      btn.innerHTML = '⬇ Pobierz dane RCN (GUGiK)';
     },
-    (errMsg) => {
-      setStatus(errMsg + ' Załadowano dane demonstracyjne.', 'error');
-      loadData(generateSampleData(250), 'dane demonstracyjne (GUGiK niedostępny)');
+    () => {
+      setStatus(
+        'Nie można pobrać danych z GUGiK z przeglądarki (CORS). ' +
+        'Uruchom serwer: npm install && npm start, następnie otwórz http://localhost:3000',
+        'error'
+      );
       btn.disabled = false;
-      btn.innerHTML = '<span id="fetchIcon">⬇</span> Pobierz dane z GUGiK';
+      btn.innerHTML = '⬇ Pobierz dane RCN (GUGiK)';
     },
-    (statusMsg) => setStatus(statusMsg),
+    (msg) => setStatus(msg),
   );
 }
 
@@ -527,12 +561,14 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // Fetch live
-  document.getElementById('btnFetchRCN').addEventListener('click', fetchLiveData);
-  document.getElementById('btnFetchRCNBig').addEventListener('click', fetchLiveData);
+  document.getElementById('btnFetchRCN').addEventListener('click', () => fetchLiveData());
+  document.getElementById('btnFetchRCNBig').addEventListener('click', () => fetchLiveData());
+  document.getElementById('btnFetchWalenroda').addEventListener('click', () => fetchLiveData('walenroda'));
+  document.getElementById('btnFetchSciegiennego').addEventListener('click', () => fetchLiveData('sciegiennego'));
+  document.getElementById('btnFetchWalenrodaBig').addEventListener('click', () => fetchLiveData('walenroda'));
+  document.getElementById('btnFetchSciegiennegoBig').addEventListener('click', () => fetchLiveData('sciegiennego'));
 
-  // Sample data
-  document.getElementById('btnLoadSample').addEventListener('click', () => loadData(generateSampleData(250), 'dane demonstracyjne'));
-  document.getElementById('btnLoadSampleBig').addEventListener('click', () => loadData(generateSampleData(250), 'dane demonstracyjne'));
+  // File import only (no demo data buttons – user wants real data only)
 
   // Filters
   document.getElementById('btnApplyFilters').addEventListener('click', applyFilters);
