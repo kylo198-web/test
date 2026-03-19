@@ -1,7 +1,7 @@
 {
-  "name": "rcn-offers-analyzer",
-  "version": "2.0.0",
-  "description": "Analizator transakcji gruntów RCN – Bieżanów-Prokocim, Kraków",
+  "name": "kw-tracker",
+  "version": "1.0.0",
+  "description": "Monitor roszczen deweloperskich – sledzenie Dzialu III ksiegi wieczystej",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,8 +9,6 @@
   },
   "dependencies": {
     "express": "^4.18.2",
-    "node-fetch": "^2.7.0",
-    "xml2js": "^0.6.2",
-    "proj4": "^2.9.0"
+    "node-fetch": "^2.7.0"
   }
 }

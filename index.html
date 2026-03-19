@@ -3,217 +3,413 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RCN – Transakcje Bieżanów-Prokocim, Kraków</title>
-  <link rel="stylesheet" href="style.css" />
-  <!-- Leaflet -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <!-- MarkerCluster -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
-  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
-  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
-  <!-- proj4 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.9.0/proj4.js"></script>
-  <!-- Chart.js -->
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <!-- PapaParse -->
-  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <title>KW Tracker – Roszczenia deweloperskie | Dział III</title>
+  <style>
+    :root {
+      --bg: #0f1117; --bg2: #1a1d27; --bg3: #242836; --border: #2e3348;
+      --text: #e4e6f0; --text2: #8b8fa8;
+      --accent: #6c8cff; --accent2: #4ecdc4;
+      --green: #4ecdc4; --orange: #ffb347; --red: #ff6b6b;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Segoe UI', -apple-system, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .container { max-width: 900px; margin: 0 auto; padding: 24px; }
+
+    .header { margin-bottom: 28px; }
+    .header h1 { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+    .header-sub { font-size: 13px; color: var(--text2); }
+
+    .search-bar { display: flex; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
+    .search-bar input {
+      flex: 1; min-width: 220px; background: var(--bg2); border: 1px solid var(--border);
+      color: var(--text); padding: 10px 16px; border-radius: 8px; font-size: 15px; outline: none;
+    }
+    .search-bar input:focus { border-color: var(--accent); }
+    .search-bar input::placeholder { color: var(--text2); }
+
+    .btn {
+      padding: 10px 20px; border: none; border-radius: 8px;
+      font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.15); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-secondary { background: var(--bg3); color: var(--text); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+    .btn-manual { background: var(--orange); color: #000; }
+
+    .status-msg {
+      background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 16px; font-size: 13px; display: none;
+    }
+    .status-msg.visible { display: block; }
+    .status-msg.error { border-color: var(--red); color: var(--red); }
+    .status-msg.warn { border-color: var(--orange); color: var(--orange); }
+    .status-msg.ok { border-color: var(--green); color: var(--green); }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px; margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 18px; text-align: center;
+    }
+    .stat-val { font-size: 32px; font-weight: 800; line-height: 1.1; }
+    .stat-val.accent { color: var(--accent); }
+    .stat-val.green { color: var(--green); }
+    .stat-val.orange { color: var(--orange); }
+    .stat-label { font-size: 11px; color: var(--text2); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .new-badge {
+      display: inline-block; background: var(--green); color: #000;
+      font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+      margin-left: 8px; animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+    .card {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    }
+    .card h3 { font-size: 15px; font-weight: 700; margin-bottom: 12px; }
+
+    .entry-card {
+      background: var(--bg3); border: 1px solid var(--border);
+      border-radius: 8px; padding: 12px 14px; margin-bottom: 8px;
+    }
+    .entry-card:hover { border-color: var(--accent); }
+    .entry-card.dev { border-left: 4px solid var(--accent); }
+    .entry-card.other { border-left: 4px solid var(--text2); }
+    .entry-tag {
+      display: inline-block; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 4px; margin-bottom: 4px;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .entry-tag.dev { background: rgba(108,140,255,0.2); color: var(--accent); }
+    .entry-tag.other { background: rgba(139,143,168,0.2); color: var(--text2); }
+    .entry-text { font-size: 13px; line-height: 1.5; color: var(--text); word-break: break-word; }
+    .entry-num { font-size: 11px; color: var(--text2); margin-top: 4px; }
+
+    .empty-state { text-align: center; padding: 40px 20px; color: var(--text2); }
+    .empty-state p { font-size: 14px; margin-bottom: 8px; }
+
+    .manual-section {
+      background: var(--bg2); border: 1px solid var(--border);
+      border-radius: 12px; padding: 20px; margin-bottom: 16px; display: none;
+    }
+    .manual-section.visible { display: block; }
+    .manual-section h3 { font-size: 15px; font-weight: 700; margin-bottom: 8px; }
+    .manual-section p { font-size: 13px; color: var(--text2); margin-bottom: 10px; }
+    .manual-section textarea {
+      width: 100%; min-height: 180px; background: var(--bg3); border: 1px solid var(--border);
+      color: var(--text); padding: 12px; border-radius: 8px; font-size: 13px;
+      font-family: monospace; resize: vertical; outline: none;
+    }
+    .manual-section textarea:focus { border-color: var(--accent); }
+    .manual-btns { display: flex; gap: 10px; margin-top: 10px; }
+
+    .history-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px;
+    }
+    .history-row:last-child { border-bottom: none; }
+    .history-date { color: var(--text2); }
+    .history-count { font-weight: 700; color: var(--accent); }
+    .history-change { font-size: 12px; font-weight: 600; }
+    .history-change.up { color: var(--green); }
+    .history-change.same { color: var(--text2); }
+
+    .help-section { font-size: 13px; color: var(--text2); line-height: 1.7; }
+    .help-section strong { color: var(--text); }
+
+    .spinner {
+      display: inline-block; width: 16px; height: 16px;
+      border: 2px solid var(--text2); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .footer { text-align: center; padding: 20px; font-size: 12px; color: var(--text2); }
+    .footer a { color: var(--accent); text-decoration: none; }
+
+    @media (max-width: 640px) {
+      .container { padding: 16px; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .stat-val { font-size: 24px; }
+    }
+  </style>
 </head>
 <body>
+<div class="container">
 
-<div id="app">
-
-  <!-- ── Sidebar ──────────────────────────────────────────── -->
-  <aside id="sidebar" class="sidebar">
-    <div class="sb-header">
-      <div class="sb-logo">
-        <span class="sb-badge">RCN</span>
-        <div>
-          <div class="sb-title">Transakcje nieruchomości</div>
-          <div class="sb-sub">Bieżanów-Prokocim · Kraków · od 2021-07-31</div>
-        </div>
-      </div>
-      <button class="sb-toggle" id="btnCollapse" title="Zwiń panel">‹</button>
-    </div>
-
-    <!-- Stats strip -->
-    <div class="sb-stats" id="sbStats">
-      <div class="sb-stat">
-        <span class="sb-stat-val" id="statCount">—</span>
-        <span class="sb-stat-lbl">Transakcji</span>
-      </div>
-      <div class="sb-stat">
-        <span class="sb-stat-val" id="statAvgPrice">—</span>
-        <span class="sb-stat-lbl">Śred. cena</span>
-      </div>
-      <div class="sb-stat">
-        <span class="sb-stat-val" id="statMedianPm2">—</span>
-        <span class="sb-stat-lbl">Med. cena/m²</span>
-      </div>
-      <div class="sb-stat">
-        <span class="sb-stat-val" id="statPrawne">—</span>
-        <span class="sb-stat-lbl">Osoby prawne</span>
-      </div>
-    </div>
-
-    <!-- Search -->
-    <div class="sb-search">
-      <input type="text" id="sidebarSearch" placeholder="🔍 Szukaj po ulicy, dacie, kwocie…" autocomplete="off" />
-    </div>
-
-    <!-- Filters (collapsible) -->
-    <details class="sb-section" id="filtersSection">
-      <summary class="sb-section-title">▸ Filtry</summary>
-      <div class="sb-filters">
-        <div class="sf-group">
-          <label>Rodzaj nieruchomości</label>
-          <select id="filterRodzaj" multiple></select>
-        </div>
-        <div class="sf-group">
-          <label>Typ nabywcy</label>
-          <select id="filterBuyer">
-            <option value="">Wszyscy nabywcy</option>
-            <option value="Osoba fizyczna">Osoba fizyczna</option>
-            <option value="Osoba prawna">Osoba prawna</option>
-          </select>
-        </div>
-        <div class="sf-group">
-          <label>Ulica</label>
-          <input type="text" id="filterUlica" placeholder="np. Wielicka" />
-        </div>
-        <div class="sf-group">
-          <label>Cena transakcji (PLN)</label>
-          <div class="sf-range">
-            <input type="number" id="filterPriceMin" placeholder="Min" />
-            <span>–</span>
-            <input type="number" id="filterPriceMax" placeholder="Max" />
-          </div>
-        </div>
-        <div class="sf-group">
-          <label>Powierzchnia (m²)</label>
-          <div class="sf-range">
-            <input type="number" id="filterAreaMin" placeholder="Min" />
-            <span>–</span>
-            <input type="number" id="filterAreaMax" placeholder="Max" />
-          </div>
-        </div>
-        <div class="sf-group">
-          <label>Data transakcji</label>
-          <div class="sf-range">
-            <input type="date" id="filterDateFrom" />
-            <span>–</span>
-            <input type="date" id="filterDateTo" />
-          </div>
-        </div>
-        <div class="sf-actions">
-          <button class="btn btn-primary btn-sm" id="btnApplyFilters">Zastosuj</button>
-          <button class="btn btn-ghost-light btn-sm" id="btnResetFilters">Resetuj</button>
-        </div>
-      </div>
-    </details>
-
-    <!-- Transaction list -->
-    <div class="sb-list-section">
-      <div class="sb-section-title">
-        Transakcje&nbsp;<span class="sb-badge-count" id="listCount">0</span>
-      </div>
-      <div class="sb-list" id="txList">
-        <div class="sb-empty" id="sbEmpty">
-          <div class="sb-empty-icon">🏗️</div>
-          <p>Pobierz dane lub załaduj plik CSV/JSON</p>
-          <div class="sb-empty-btns">
-            <button class="btn btn-primary btn-sm" id="btnLoadSampleSb">Dane testowe</button>
-            <button class="btn btn-outline-light btn-sm" id="btnFetchRCNSb">⬇ GUGiK</button>
-          </div>
-        </div>
-      </div>
-      <div class="sb-pagination" id="sbPagination"></div>
-    </div>
-
-    <!-- Data source actions -->
-    <div class="sb-actions">
-      <button class="btn btn-outline-light" id="btnFetchRCN">⬇ Pobierz z GUGiK</button>
-      <button class="btn btn-ghost-light" id="btnLoadSample">Dane testowe</button>
-      <label class="btn btn-ghost-light" for="fileInput">
-        📂 Importuj CSV/JSON
-        <input type="file" id="fileInput" accept=".csv,.json" hidden />
-      </label>
-      <button class="btn btn-ghost-light" id="btnExportCSV" style="display:none">Eksportuj CSV</button>
-    </div>
-  </aside>
-
-  <!-- ── Map area ──────────────────────────────────────────── -->
-  <div id="mapWrap">
-
-    <!-- Floating toolbar -->
-    <div class="map-toolbar">
-      <button class="mtb-btn" id="btnExpandSidebar" title="Rozwiń panel" style="display:none">☰</button>
-      <div class="mtb-legend">
-        <span class="ldot ldot--blue"></span> Osoba fizyczna
-        <span class="ldot ldot--red"></span> Osoba prawna
-      </div>
-      <div class="mtb-sep"></div>
-      <div class="mtb-info">Pinezek: <strong id="mapCount">0</strong></div>
-      <button class="mtb-btn" id="btnOpenCharts">📊 Statystyki</button>
-    </div>
-
-    <!-- Status bar (floating) -->
-    <div class="map-status hidden" id="statusBar"></div>
-
-    <!-- Map -->
-    <div id="krakowMap"></div>
-
-    <!-- Map credit -->
-    <div class="map-credit">© OpenStreetMap | Dane: GUGiK RCN</div>
-
-    <!-- Detail panel (slides in on marker click) -->
-    <div class="detail-panel hidden" id="detailPanel">
-      <div class="dp-header">
-        <div class="dp-title" id="dpTitle">Szczegóły transakcji</div>
-        <button class="dp-close" id="btnCloseDetail" title="Zamknij">×</button>
-      </div>
-      <div class="dp-body" id="dpBody"></div>
-    </div>
-
-  </div><!-- /mapWrap -->
-
-</div><!-- /app -->
-
-<!-- Charts modal -->
-<div class="modal-overlay hidden" id="chartsModal">
-  <div class="modal-box">
-    <div class="modal-header">
-      <h2>📊 Statystyki – Bieżanów-Prokocim</h2>
-      <button class="dp-close" id="btnCloseCharts">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="charts-grid">
-        <div class="chart-card chart-wide">
-          <h3>Trend cen transakcyjnych (PLN/m²)</h3>
-          <canvas id="chartPriceTrend"></canvas>
-        </div>
-        <div class="chart-card">
-          <h3>Śred. cena/m² wg ulicy</h3>
-          <canvas id="chartPriceByStreet"></canvas>
-        </div>
-        <div class="chart-card">
-          <h3>Rozkład powierzchni działek</h3>
-          <canvas id="chartAreaDist"></canvas>
-        </div>
-        <div class="chart-card">
-          <h3>Typ nabywcy</h3>
-          <canvas id="chartBuyerType"></canvas>
-        </div>
-        <div class="chart-card">
-          <h3>Rodzaj nieruchomości</h3>
-          <canvas id="chartRodzaj"></canvas>
-        </div>
-      </div>
+  <div class="header">
+    <h1>KW Tracker – Monitor Roszczen Deweloperskich</h1>
+    <div class="header-sub">
+      Sledzenie Dzialu III ksiegi wieczystej – roszczenia z umow deweloperskich jako wskaznik sprzedazy inwestycji
     </div>
   </div>
+
+  <div class="search-bar">
+    <input type="text" id="kwInput" placeholder="Numer KW, np. KR1P/00291452/4" />
+    <button class="btn btn-primary" id="btnFetch">Sprawdz Dzial III</button>
+    <button class="btn btn-secondary" id="btnManualToggle">Wklej recznie</button>
+  </div>
+
+  <div class="status-msg" id="statusMsg"></div>
+
+  <div class="stats" id="statsSection" style="display:none;">
+    <div class="stat-card">
+      <div class="stat-val accent" id="statDevClaims">0</div>
+      <div class="stat-label">Roszczenia deweloperskie</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val green" id="statTotal">0</div>
+      <div class="stat-label">Wszystkie wpisy Dz. III</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val orange" id="statNew">0</div>
+      <div class="stat-label">Nowe od ostatniego sprawdzenia</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-val" id="statLastCheck" style="font-size: 14px;">—</div>
+      <div class="stat-label">Ostatnie sprawdzenie</div>
+    </div>
+  </div>
+
+  <!-- Manual input -->
+  <div class="manual-section" id="manualSection">
+    <h3>Reczne wklejenie tresci Dzialu III</h3>
+    <p>
+      1. Otworz
+      <a href="https://przegladarka-ekw.ms.gov.pl/eukw_prz/KsiegiWieczyste/wyszukiwanieKW?komunikaty=true&kontakt=true&okienkoSerwisowe=false"
+         target="_blank" style="color: var(--accent)">przegladarke EKW</a><br/>
+      2. Wpisz numer KW: <strong id="manualKwNum"></strong><br/>
+      3. Rozwiaz CAPTCHA i przejdz do tresci<br/>
+      4. Otworz <strong>Dzial III</strong>, zaznacz cala tresc (Ctrl+A) i wklej ponizej
+    </p>
+    <textarea id="manualHtml" placeholder="Wklej tutaj tresc HTML lub tekst Dzialu III..."></textarea>
+    <div class="manual-btns">
+      <button class="btn btn-manual" id="btnManualParse">Analizuj wklejony tekst</button>
+      <button class="btn btn-secondary" id="btnManualClose">Anuluj</button>
+    </div>
+  </div>
+
+  <!-- Entries -->
+  <div class="card" id="entriesSection" style="display:none;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+      <h3>Wpisy Dzialu III – Roszczenia</h3>
+      <span style="background:var(--accent); color:#fff; font-size:12px; font-weight:700; padding:3px 10px; border-radius:12px;" id="entriesCount">0</span>
+    </div>
+    <div id="entriesList"></div>
+  </div>
+
+  <!-- History -->
+  <div class="card" id="historySection" style="display:none;">
+    <h3>Historia sprawdzen</h3>
+    <div id="historyList"></div>
+  </div>
+
+  <!-- Help -->
+  <div class="card">
+    <h3>Jak to dziala?</h3>
+    <div class="help-section">
+      <p><strong>Dzial III ksiegi wieczystej</strong> zawiera wpisy dotyczace praw, roszczen i ograniczen.</p>
+      <p>Gdy kupujacy podpisuje <strong style="color:var(--accent)">umowe deweloperska</strong>,
+         w Dziale III wpisywane jest <strong style="color:var(--accent)">roszczenie o wybudowanie budynku,
+         wyodrebnienie lokalu i przeniesienie prawa wlasnosci</strong>.</p>
+      <p>Liczba takich wpisow = liczba podpisanych umow = <strong style="color:var(--green)">poziom sprzedazy inwestycji</strong>.</p>
+      <p style="margin-top:8px;">
+        <strong>Jak uzywac:</strong> Wpisz numer KW dewelopera (np. KR1P/00291452/4),
+        pobierz dane lub wklej tresc Dzialu III recznie. Tracker zapamietuje stan i porownuje przy kazdym sprawdzeniu.
+      </p>
+      <p style="margin-top:8px;">
+        <strong>CAPTCHA:</strong> Strona EKW wymaga rozwiazania CAPTCHA.
+        Uzyj przycisku "Wklej recznie" – skopiuj tresc Dzialu III ze strony EKW i wklej tutaj.
+      </p>
+    </div>
+  </div>
+
+  <div class="footer">
+    Dane z <a href="https://przegladarka-ekw.ms.gov.pl" target="_blank">przegladarka-ekw.ms.gov.pl</a>
+    · Centralna Informacja Ksiag Wieczystych
+  </div>
+
 </div>
 
-<script src="map.js"></script>
-<script src="app.js"></script>
+<script>
+(function() {
+  'use strict';
+
+  const $ = id => document.getElementById(id);
+  const kwInput = $('kwInput');
+  const btnFetch = $('btnFetch');
+  const statusMsg = $('statusMsg');
+
+  const savedKW = localStorage.getItem('kw-tracker-last-kw');
+  if (savedKW) kwInput.value = savedKW;
+
+  function showStatus(text, type) {
+    statusMsg.textContent = text;
+    statusMsg.className = 'status-msg visible ' + (type || '');
+  }
+  function hideStatus() { statusMsg.className = 'status-msg'; }
+
+  function formatDate(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('pl-PL', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    });
+  }
+
+  function esc(str) {
+    return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  async function fetchEKW() {
+    const kw = kwInput.value.trim();
+    if (!kw) { showStatus('Podaj numer ksiegi wieczystej.', 'error'); return; }
+
+    localStorage.setItem('kw-tracker-last-kw', kw);
+    btnFetch.disabled = true;
+    btnFetch.innerHTML = '<span class="spinner"></span> Pobieranie...';
+    hideStatus();
+
+    try {
+      const resp = await fetch('/api/ekw?kw=' + encodeURIComponent(kw) + '&refresh=1');
+      const data = await resp.json();
+
+      if (data.error === 'CAPTCHA_REQUIRED') {
+        showStatus('Strona EKW wymaga CAPTCHA. Uzyj przycisku "Wklej recznie" – skopiuj tresc Dzialu III ze strony EKW.', 'warn');
+        $('manualSection').classList.add('visible');
+        $('manualKwNum').textContent = kw;
+      } else if (!data.ok) {
+        showStatus('Blad: ' + (data.error || 'Nieznany blad'), 'error');
+      } else {
+        showStatus('Pobrano dane dla ' + kw, 'ok');
+        renderData(data);
+      }
+    } catch (err) {
+      showStatus('Blad polaczenia: ' + err.message, 'error');
+    } finally {
+      btnFetch.disabled = false;
+      btnFetch.textContent = 'Sprawdz Dzial III';
+    }
+    loadHistory(kw);
+  }
+
+  async function parseManual() {
+    const kw = kwInput.value.trim();
+    if (!kw) { showStatus('Wpisz numer KW w polu wyszukiwania.', 'error'); return; }
+    const html = $('manualHtml').value.trim();
+    if (!html) { showStatus('Wklej tresc Dzialu III.', 'error'); return; }
+
+    localStorage.setItem('kw-tracker-last-kw', kw);
+    $('btnManualParse').disabled = true;
+    $('btnManualParse').innerHTML = '<span class="spinner"></span> Analizuje...';
+
+    try {
+      const resp = await fetch('/api/ekw/manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kwNumber: kw, htmlContent: html }),
+      });
+      const result = await resp.json();
+
+      if (result.ok) {
+        showStatus(result.message, 'ok');
+        renderData(result);
+        $('manualSection').classList.remove('visible');
+        loadHistory(kw);
+      } else {
+        showStatus('Blad: ' + result.error, 'error');
+      }
+    } catch (err) {
+      showStatus('Blad: ' + err.message, 'error');
+    } finally {
+      $('btnManualParse').disabled = false;
+      $('btnManualParse').textContent = 'Analizuj wklejony tekst';
+    }
+  }
+
+  function renderData(data) {
+    const dz = data.dzialIII || {};
+    const entries = dz.entries || [];
+    const devCount = dz.developerClaimsCount || 0;
+    const totalCount = dz.totalEntriesCount || 0;
+    const newEntries = data.newEntries || 0;
+
+    $('statsSection').style.display = '';
+    $('statDevClaims').textContent = devCount;
+    $('statTotal').textContent = totalCount;
+    $('statNew').innerHTML = newEntries > 0
+      ? newEntries + '<span class="new-badge">NOWE!</span>'
+      : '0';
+    $('statLastCheck').textContent = formatDate(data.fetchedAt);
+
+    $('entriesSection').style.display = '';
+    $('entriesCount').textContent = entries.length;
+
+    if (entries.length === 0) {
+      $('entriesList').innerHTML = '<div class="empty-state"><p>Brak wpisow w Dziale III lub nie udalo sie ich sparsowac.</p><p style="font-size:12px;">Sprobuj wkleic tresc recznie.</p></div>';
+      return;
+    }
+
+    let html = '';
+    entries.forEach(entry => {
+      const isDev = entry.isDeveloperClaim;
+      html += '<div class="entry-card ' + (isDev ? 'dev' : 'other') + '">'
+        + '<span class="entry-tag ' + (isDev ? 'dev' : 'other') + '">'
+        + (isDev ? 'Umowa deweloperska' : 'Inny wpis') + '</span>'
+        + '<div class="entry-text">' + esc(entry.fullText) + '</div>'
+        + (entry.entryNumber ? '<div class="entry-num">Wpis nr: ' + esc(entry.entryNumber) + '</div>' : '')
+        + '</div>';
+    });
+    $('entriesList').innerHTML = html;
+  }
+
+  async function loadHistory(kw) {
+    try {
+      const resp = await fetch('/api/ekw/history?kw=' + encodeURIComponent(kw));
+      const data = await resp.json();
+
+      if (data.history && data.history.length > 0) {
+        $('historySection').style.display = '';
+        let html = '';
+        const recent = data.history.slice(-20).reverse();
+        recent.forEach((h, i) => {
+          const prev = recent[i + 1];
+          const change = prev ? h.developerClaimsCount - prev.developerClaimsCount : 0;
+          let changeHtml = '';
+          if (change > 0) changeHtml = '<span class="history-change up">+' + change + ' nowych</span>';
+          else if (prev) changeHtml = '<span class="history-change same">bez zmian</span>';
+
+          html += '<div class="history-row">'
+            + '<span class="history-date">' + formatDate(h.timestamp) + '</span>'
+            + '<span class="history-count">' + h.developerClaimsCount + ' roszczen' + (h.source === 'manual' ? ' (recznie)' : '') + '</span>'
+            + changeHtml
+            + '</div>';
+        });
+        $('historyList').innerHTML = html;
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  btnFetch.addEventListener('click', fetchEKW);
+  kwInput.addEventListener('keypress', e => { if (e.key === 'Enter') fetchEKW(); });
+
+  $('btnManualToggle').addEventListener('click', () => {
+    $('manualSection').classList.toggle('visible');
+    $('manualKwNum').textContent = kwInput.value.trim() || '...';
+  });
+  $('btnManualParse').addEventListener('click', parseManual);
+  $('btnManualClose').addEventListener('click', () => $('manualSection').classList.remove('visible'));
+
+  if (savedKW) loadHistory(savedKW);
+
+})();
+</script>
 </body>
 </html>
