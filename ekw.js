@@ -1,13 +1,14 @@
 'use strict';
 
 /**
- * EKW Scraper Module
- * ------------------
- * Pobiera dane z przeglądarki Elektronicznych Ksiąg Wieczystych (przegladarka-ekw.ms.gov.pl).
- * Skupia się na Dziale III (prawa, roszczenia, ograniczenia) – szczególnie na roszczeniach
- * z umów deweloperskich, które świadczą o podpisaniu umowy deweloperskiej.
+ * EKW Parser Module
+ * -----------------
+ * Parsuje dane z przegladarki Elektronicznych Ksiag Wieczystych.
+ * Obsluguje tekst skopiowany ze strony EKW (plain text, nie HTML).
  *
- * Numer KW: KR1P/00291452/4
+ * Format danych z EKW:
+ * - Wzmianki: na gorze, format "N.REP.C. / NOTA / ... - data - opis"
+ * - Wpisy: "Lp. N.---Nr podstawy wpisuNumer wpisuXXYYRodzaj wpisuTYPTresc wpisu..."
  */
 
 const fetch = require('node-fetch');
@@ -23,13 +24,10 @@ const HEADERS = {
   'Upgrade-Insecure-Requests': '1',
 };
 
-/**
- * Parsuje numer KW w formacie "KR1P/00291452/4" na składowe.
- */
 function parseKWNumber(kwNumber) {
   const parts = kwNumber.trim().split('/');
   if (parts.length !== 3) {
-    throw new Error(`Nieprawidłowy format numeru KW: ${kwNumber}. Oczekiwany: XXXX/NNNNNNNN/K`);
+    throw new Error(`Nieprawidlowy format numeru KW: ${kwNumber}. Oczekiwany: XXXX/NNNNNNNN/K`);
   }
   return {
     kodWydzialu: parts[0],
@@ -39,180 +37,172 @@ function parseKWNumber(kwNumber) {
 }
 
 /**
- * Wyciąga ciasteczka z nagłówka Set-Cookie.
+ * Parsuje wzmianki z tekstu Dzialu III.
+ * Wzmianki to zapowiedzi przyszlych wpisow - traktujemy je jako oczekujace roszczenia.
+ *
+ * W tekscie wzmianki ida ciagiem, np:
+ * "1.REP.C. / NOTA / 220025 / 26 - 2026-03-16, 13:57:56
+ *  1. 1DZ. KW. / KR1P / 31663 / 26 / 1 - 2026-03-19, 09:52:56 - WPIS ROSZCZENIA..."
+ *
+ * Kazda wzmianka DZ.KW z opisem "WPIS ROSZCZENIA O USTANOWIENIE" = oczekujacy wpis deweloperski.
  */
-function extractCookies(response) {
-  const raw = response.headers.raw()['set-cookie'] || [];
-  return raw.map(c => c.split(';')[0]).join('; ');
-}
+function parseWzmianki(text) {
+  const wzmianki = [];
 
-/**
- * Łączy ciasteczka z wielu odpowiedzi.
- */
-function mergeCookies(existing, newCookies) {
-  if (!newCookies) return existing;
-  const map = {};
-  [existing, newCookies].forEach(str => {
-    if (!str) return;
-    str.split('; ').filter(Boolean).forEach(pair => {
-      const [key] = pair.split('=');
-      map[key] = pair;
+  // Szukamy sekcji Wzmianki
+  const wzmiankiStart = text.indexOf('Wzmianki');
+  if (wzmiankiStart === -1) return wzmianki;
+
+  // Wzmianki koncza sie przed pierwszym "Lp. 1.---"
+  const lpStart = text.indexOf('Lp. 1.---');
+  const wzmiankiText = lpStart > wzmiankiStart
+    ? text.substring(wzmiankiStart, lpStart)
+    : text.substring(wzmiankiStart, Math.min(wzmiankiStart + 3000, text.length));
+
+  // Szukamy wszystkich wzmianek DZ.KW z opisem roszczenia
+  // Timestamp konczy sie na SS i nastepny numer wzmianki zaczyna sie bezposrednio
+  // np: "13:57:561. 1DZ." -> czas=13:57:56, potem "1. 1DZ."
+  const dzKwPattern = /DZ\.\s*KW\.\s*\/\s*([A-Z0-9]+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*\/\s*(\d+)\s*-\s*(\d{4}-\d{2}-\d{2}),?\s*(\d{2}:\d{2}:\d{2})\s*-\s*([\s\S]*?)(?=\d+\.\s*(?:REP\.C\.|DZ\.)|$)/gi;
+
+  let match;
+  let wzNr = 0;
+  while ((match = dzKwPattern.exec(wzmiankiText)) !== null) {
+    wzNr++;
+    const description = match[7].trim().replace(/\s+/g, ' ');
+    const documentRef = `DZ. KW. / ${match[1]} / ${match[2]} / ${match[3]} / ${match[4]}`;
+    wzmianki.push({
+      wzmiankaNr: String(wzNr),
+      documentRef,
+      date: match[5],
+      time: match[6] || '',
+      description,
+      isDeveloperClaim: /roszczeni|ustanowien|odr[eę]bn|w[łl]asno[sś]|lokalu|przeniesien/i.test(description),
     });
-  });
-  return Object.values(map).join('; ');
+  }
+
+  return wzmianki;
 }
 
 /**
- * Parsuje wpisy Działu III z surowego HTML.
- * Wpisy to roszczenia, prawa i ograniczenia.
- * Szukamy wpisów dotyczących roszczeń o wybudowanie/ustanowienie odrębnej własności lokalu.
+ * Parsuje wpisy Dzialu III z tekstu skopiowanego z EKW.
+ *
+ * Struktura tekstu:
+ * "Lp. N.---Nr podstawy wpisuNumer wpisuXXYYRodzaj wpisuTYPTresc wpisuTEKST..."
+ *
+ * Kazdy wpis zaczyna sie od "Lp. N.---" i konczy przed nastepnym "Lp. N+1.---"
  */
-function parseDzialIII(html) {
+function parseDzialIII(text) {
   const entries = [];
 
-  // Szukamy wpisów w tabeli Działu III
-  // Typowy wpis roszczenia deweloperskiego zawiera:
-  // - "roszczenie"
-  // - "umowa deweloperska" lub "umowa przedwstępna"
-  // - "wybudowanie" lub "ustanowienie odrębnej własności"
-  // - "lokal" / "mieszkanie"
+  // Usun tagi HTML jesli sa
+  const cleanText = text.replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 
-  // Pattern 1: Szukamy wpisów w strukturze tabelarycznej
-  const rowPattern = /<tr[^>]*>([\s\S]*?)<\/tr>/gi;
-  let rowMatch;
-
-  while ((rowMatch = rowPattern.exec(html)) !== null) {
-    const rowHtml = rowMatch[1];
-    const cells = [];
-    const cellPattern = /<td[^>]*>([\s\S]*?)<\/td>/gi;
-    let cellMatch;
-    while ((cellMatch = cellPattern.exec(rowHtml)) !== null) {
-      cells.push(stripHtml(cellMatch[1]).trim());
-    }
-    if (cells.length > 0) {
-      const text = cells.join(' ').toLowerCase();
-      if (text.includes('roszczeni') || text.includes('umow') || text.includes('dewelop') ||
-          text.includes('wybudow') || text.includes('lokal') || text.includes('odrębna własność') ||
-          text.includes('odrebna wlasnosc') || text.includes('mieszka')) {
-        entries.push({
-          cells,
-          fullText: cells.join(' | '),
-          isDeveloperClaim: isDeveloperClaim(text),
-        });
-      }
-    }
-  }
-
-  // Pattern 2: Szukamy w divach / paragrafach
-  const blockPattern = /<(?:div|p|span)[^>]*class="[^"]*(?:wpis|tresc|roszczenie|entry)[^"]*"[^>]*>([\s\S]*?)<\/(?:div|p|span)>/gi;
-  let blockMatch;
-  while ((blockMatch = blockPattern.exec(html)) !== null) {
-    const text = stripHtml(blockMatch[1]).trim();
-    if (text.length > 10) {
+  // 1. Parsuj wzmianki
+  const wzmianki = parseWzmianki(cleanText);
+  for (const wz of wzmianki) {
+    if (wz.isDeveloperClaim) {
       entries.push({
-        cells: [text],
-        fullText: text,
-        isDeveloperClaim: isDeveloperClaim(text.toLowerCase()),
-      });
-    }
-  }
-
-  // Pattern 3: Szukamy wpisów po numerze poddziałki (np. "3.1", "3.2" itd.)
-  const subSectionPattern = /(?:podrubryka|numer\s*wpisu|lp\.?)\s*[:.]?\s*(\d+[\.\d]*)\s*[^<]*([\s\S]*?)(?=(?:podrubryka|numer\s*wpisu|lp\.?)\s*[:.]?\s*\d|$)/gi;
-  let subMatch;
-  while ((subMatch = subSectionPattern.exec(html)) !== null) {
-    const num = subMatch[1];
-    const content = stripHtml(subMatch[2]).trim();
-    if (content.length > 20 && isDeveloperClaim(content.toLowerCase())) {
-      entries.push({
-        cells: [num, content],
-        fullText: `${num}: ${content}`,
+        type: 'wzmianka',
+        entryNumber: `Wzmianka ${wz.wzmiankaNr}`,
+        rodzajWpisu: 'WZMIANKA (oczekujacy wpis)',
+        fullText: `${wz.description} [${wz.documentRef}] z dnia ${wz.date}`,
         isDeveloperClaim: true,
-        entryNumber: num,
+        apartmentNumber: null,
+        people: [],
+        date: wz.date,
       });
     }
   }
 
-  // Deduplikacja
-  const seen = new Set();
-  return entries.filter(e => {
-    const key = e.fullText.substring(0, 100);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  // 2. Parsuj wpisy - rozdzielamy po "Lp. N.---"
+  const entryBlocks = cleanText.split(/(?=Lp\.\s*\d+\.\s*---)/);
+
+  for (const block of entryBlocks) {
+    const lpMatch = block.match(/^Lp\.\s*(\d+)\.\s*---/);
+    if (!lpMatch) continue;
+
+    const lp = lpMatch[1];
+
+    // Numer wpisu - szukamy miedzy "Numer wpisu" a "Rodzaj wpisu"
+    const numerWpisuMatch = block.match(/Numer\s*wpisu\s*(\d[\d,\s]*)/i);
+    const numerWpisu = numerWpisuMatch ? numerWpisuMatch[1].trim() : '';
+
+    // Rodzaj wpisu - wszystko miedzy "Rodzaj wpisu" a "Tresc wpisu"
+    const rodzajMatch = block.match(/Rodzaj\s*wpisu\s*([\s\S]*?)(?=Tre[sś][cć]\s*wpisu)/i);
+    const rodzajWpisu = rodzajMatch ? rodzajMatch[1].trim() : '';
+
+    // Tresc wpisu - miedzy "Tresc wpisu" a "Osoba fizyczna" lub "Wskazania" lub koniec
+    const trescMatch = block.match(/Tre[sś][cć]\s*wpisu\s*([\s\S]*?)(?=Osoba\s*fizyczna|Wskazania\s*innej|Rodzaj\s*zmiany|$)/i);
+    const trescWpisu = trescMatch ? trescMatch[1].trim() : '';
+
+    // Numer mieszkania
+    const aptMatch = trescWpisu.match(/(?:NUMER(?:EM)?|OZNACZON(?:EGO|YM)\s*ROBOCZO\s*NUMEREM)\s*(\d+)/i);
+    const apartmentNumber = aptMatch ? aptMatch[1] : null;
+
+    // Osoby
+    const people = extractPeople(block);
+
+    // Czy to roszczenie deweloperskie
+    const isDev = isDeveloperClaim(trescWpisu) || isDeveloperClaim(rodzajWpisu + ' ' + trescWpisu);
+
+    entries.push({
+      type: 'wpis',
+      entryNumber: `Lp. ${lp} (wpis nr ${numerWpisu})`,
+      lp: parseInt(lp),
+      numerWpisu,
+      rodzajWpisu,
+      fullText: trescWpisu,
+      isDeveloperClaim: isDev,
+      apartmentNumber,
+      people,
+    });
+  }
+
+  return entries;
 }
 
 /**
- * Sprawdza, czy tekst dotyczy roszczenia deweloperskiego.
+ * Wyciaga osoby z bloku wpisu.
+ */
+function extractPeople(block) {
+  const people = [];
+  // Szukamy osob po "Lp. N." wewnatrz sekcji "Osoba fizyczna"
+  const personSection = block.match(/Osoba\s*fizyczna[^)]*\)([\s\S]*?)(?=Lp\.\s*\d+\.\s*---|$)/i);
+  if (!personSection) return people;
+
+  const personText = personSection[1];
+  // Kazda osoba: "Lp. N.IMIE NAZWISKO , ..."
+  const personPattern = /Lp\.\s*\d+\.\s*([A-ZŁŚŻŹĆŃÓĘĄ][A-ZŁŚŻŹĆŃÓĘĄ\s-]+?)\s*,\s*([A-ZŁŚŻŹĆŃÓĘĄ]+)\s*,\s*([A-ZŁŚŻŹĆŃÓĘĄ]+)\s*,\s*(\d{11})/gi;
+  let match;
+  while ((match = personPattern.exec(personText)) !== null) {
+    people.push({
+      name: match[1].trim(),
+      fatherName: match[2].trim(),
+      motherName: match[3].trim(),
+      pesel: match[4],
+    });
+  }
+  return people;
+}
+
+/**
+ * Sprawdza czy tekst dotyczy roszczenia deweloperskiego.
  */
 function isDeveloperClaim(text) {
-  const keywords = [
-    'roszczeni',          // roszczenie, roszczenia
-    'dewelop',            // dewelopersk*, deweloper
-    'wybudow',            // wybudowanie
-    'ustanowien',         // ustanowienie
-    'odrębna własność',   // odrębna własność lokalu
-    'odrebna wlasnosc',
-    'umow',               // umowa deweloperska
+  const lower = text.toLowerCase();
+  const patterns = [
+    /roszczeni/,
+    /wybudow/,
+    /ustanowien.*odr[eę]bn/,
+    /odr[eę]bn.*w[łl]asno[sś]/,
+    /lokalu?\s*mieszk/,
+    /przeniesieni.*praw/,
+    /wyodr[eę]bni/,
   ];
-  const score = keywords.reduce((s, kw) => s + (text.includes(kw) ? 1 : 0), 0);
+  const score = patterns.reduce((s, p) => s + (p.test(lower) ? 1 : 0), 0);
   return score >= 2;
 }
 
-/**
- * Parsuje ogólne informacje z HTML KW.
- */
-function parseKWInfo(html) {
-  const info = {};
-
-  // Tytuł / oznaczenie
-  const titleMatch = html.match(/Numer\s*(?:księgi|KW)[^<]*<[^>]*>([^<]+)/i);
-  if (titleMatch) info.numerKW = stripHtml(titleMatch[1]).trim();
-
-  // Typ nieruchomości
-  const typMatch = html.match(/(?:Typ|Rodzaj)\s*(?:nieruchomo|ksi)[^<]*<[^>]*>([^<]+)/i);
-  if (typMatch) info.typNieruchomosci = stripHtml(typMatch[1]).trim();
-
-  // Położenie
-  const polozMatch = html.match(/(?:Poło[żz]enie|Miejscowo)[^<]*<[^>]*>([^<]+)/i);
-  if (polozMatch) info.polozenie = stripHtml(polozMatch[1]).trim();
-
-  return info;
-}
-
-/**
- * Parsuje pełne dane ze strony treści KW.
- */
-function parseFullKWContent(html) {
-  const sections = {
-    dzialI: '',
-    dzialII: '',
-    dzialIII: '',
-    dzialIV: '',
-  };
-
-  // Szukamy sekcji Dział III
-  const dzialIIIPatterns = [
-    /(?:Dzia[łl]\s*III|DZIA[ŁL]\s*III|dzia[łl]\s*trzeci)[^]*?(?=(?:Dzia[łl]\s*IV|DZIA[ŁL]\s*IV|$))/i,
-    /(?:PRAWA,\s*ROSZCZENIA\s*I\s*OGRANICZENIA)[^]*?(?=(?:HIPOTEKI|Dzia[łl]\s*IV|$))/i,
-    /id="[^"]*[Dd]zial[^"]*III[^"]*"[^>]*>([\s\S]*?)(?=id="[^"]*[Dd]zial[^"]*IV|$)/i,
-  ];
-
-  for (const pattern of dzialIIIPatterns) {
-    const match = html.match(pattern);
-    if (match) {
-      sections.dzialIII = match[0];
-      break;
-    }
-  }
-
-  return sections;
-}
-
-/**
- * Usuwa tagi HTML.
- */
 function stripHtml(html) {
   return html
     .replace(/<br\s*\/?>/gi, '\n')
@@ -227,223 +217,84 @@ function stripHtml(html) {
     .trim();
 }
 
-/**
- * Główna funkcja – pobiera i parsuje Dział III księgi wieczystej.
- *
- * Flow:
- * 1. GET strona wyszukiwania (pobranie sesji/cookies)
- * 2. POST z danymi KW (kodWydzialu, numerKw, cyfraKontrolna)
- * 3. Nawigacja do Działu III
- * 4. Parsowanie HTML
- *
- * @param {string} kwNumber - numer KW, np. "KR1P/00291452/4"
- * @returns {Object} wynik z informacjami o KW i wpisami Działu III
- */
+// ── Fetch (automatyczny - blokowany przez CAPTCHA) ────────────
+
+function extractCookies(response) {
+  const raw = response.headers.raw()['set-cookie'] || [];
+  return raw.map(c => c.split(';')[0]).join('; ');
+}
+
+function mergeCookies(existing, newCookies) {
+  if (!newCookies) return existing;
+  const map = {};
+  [existing, newCookies].forEach(str => {
+    if (!str) return;
+    str.split('; ').filter(Boolean).forEach(pair => {
+      const [key] = pair.split('=');
+      map[key] = pair;
+    });
+  });
+  return Object.values(map).join('; ');
+}
+
 async function fetchKW(kwNumber) {
   const { kodWydzialu, numerKw, cyfraKontrolna } = parseKWNumber(kwNumber);
   let cookies = '';
   const result = {
     kwNumber,
-    kodWydzialu,
-    numerKw,
-    cyfraKontrolna,
     fetchedAt: new Date().toISOString(),
     success: false,
     error: null,
-    info: {},
-    dzialIII: {
-      rawHtml: '',
-      entries: [],
-      developerClaimsCount: 0,
-      totalEntriesCount: 0,
-    },
+    info: { numerKW: kwNumber },
+    dzialIII: { entries: [], developerClaimsCount: 0, totalEntriesCount: 0 },
   };
 
   try {
-    // Step 1: GET strona wyszukiwania – pobranie sesji
-    console.log(`[EKW] Step 1: Pobieranie sesji z ${EKW_BASE}/wyszukiwanieKW`);
+    console.log(`[EKW] Pobieranie sesji...`);
     const searchPageResp = await fetch(
       `${EKW_BASE}/wyszukiwanieKW?komunikaty=true&kontakt=true&okienkoSerwisowe=false`,
       { headers: HEADERS, redirect: 'follow' }
     );
     cookies = mergeCookies(cookies, extractCookies(searchPageResp));
     const searchPageHtml = await searchPageResp.text();
-    console.log(`[EKW] Step 1: Status ${searchPageResp.status}, cookies: ${cookies ? 'tak' : 'brak'}`);
 
-    // Szukamy tokenu CSRF
-    let csrfToken = '';
-    const csrfMatch = searchPageHtml.match(/name="[^"]*(?:csrf|token|_token)[^"]*"\s*value="([^"]+)"/i);
-    if (csrfMatch) {
-      csrfToken = csrfMatch[1];
-      console.log(`[EKW] CSRF token: ${csrfToken.substring(0, 10)}...`);
-    }
-
-    // Step 2: POST wyszukiwania KW
-    console.log(`[EKW] Step 2: Wyszukiwanie KW: ${kwNumber}`);
-    const formBody = new URLSearchParams();
-    formBody.append('kodWydzialuInput', kodWydzialu);
-    formBody.append('numerKsiegiWieczystej', numerKw);
-    formBody.append('cyfraKontrolna', cyfraKontrolna);
-    if (csrfToken) formBody.append('_csrf', csrfToken);
-
-    const searchResp = await fetch(`${EKW_BASE}/wyszukiwanieKW`, {
-      method: 'POST',
-      headers: {
-        ...HEADERS,
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Cookie': cookies,
-        'Referer': `${EKW_BASE}/wyszukiwanieKW?komunikaty=true&kontakt=true&okienkoSerwisowe=false`,
-      },
-      body: formBody.toString(),
-      redirect: 'follow',
-    });
-    cookies = mergeCookies(cookies, extractCookies(searchResp));
-    const searchResultHtml = await searchResp.text();
-    console.log(`[EKW] Step 2: Status ${searchResp.status}, rozmiar HTML: ${searchResultHtml.length}`);
-
-    // Sprawdź, czy mamy CAPTCHA
-    if (searchResultHtml.includes('captcha') || searchResultHtml.includes('reCAPTCHA') || searchResultHtml.includes('g-recaptcha')) {
+    if (searchPageHtml.includes('captcha') || searchPageHtml.includes('reCAPTCHA') || searchPageHtml.includes('g-recaptcha')) {
       result.error = 'CAPTCHA_REQUIRED';
-      console.log('[EKW] CAPTCHA wykryta – automatyczne pobieranie zablokowane');
       return result;
     }
 
-    // Sprawdź, czy znaleziono KW
-    if (searchResultHtml.includes('nie znaleziono') || searchResultHtml.includes('Nie znaleziono')) {
-      result.error = 'KW_NOT_FOUND';
-      console.log(`[EKW] Księga wieczysta ${kwNumber} nie znaleziona`);
-      return result;
-    }
-
-    // Parsujemy informacje ogólne
-    result.info = parseKWInfo(searchResultHtml);
-
-    // Step 3: Szukamy linku do Działu III
-    console.log('[EKW] Step 3: Szukanie linku do Działu III');
-
-    // Szukamy linku/przycisku do Działu III
-    const dzialIIILinkPatterns = [
-      /href="([^"]*(?:dzial|dział|section)[^"]*III[^"]*)"/i,
-      /href="([^"]*(?:dzialIII|dzial3|dIII|d3)[^"]*)"/i,
-      /href="([^"]*(?:contentDzial|pokazDzial)[^"]*3[^"]*)"/i,
-      /action="([^"]*(?:dzial|section)[^"]*)"/i,
-    ];
-
-    let dzialIIIUrl = null;
-    for (const pattern of dzialIIILinkPatterns) {
-      const match = searchResultHtml.match(pattern);
-      if (match) {
-        dzialIIIUrl = match[1];
-        if (!dzialIIIUrl.startsWith('http')) {
-          dzialIIIUrl = `${EKW_BASE}/${dzialIIIUrl.replace(/^\//, '')}`;
-        }
-        break;
-      }
-    }
-
-    let dzialIIIHtml = searchResultHtml; // fallback: cała strona
-
-    if (dzialIIIUrl) {
-      console.log(`[EKW] Step 3: Link do Działu III: ${dzialIIIUrl}`);
-      const dzialResp = await fetch(dzialIIIUrl, {
-        headers: { ...HEADERS, Cookie: cookies, Referer: `${EKW_BASE}/wyszukiwanieKW` },
-        redirect: 'follow',
-      });
-      cookies = mergeCookies(cookies, extractCookies(dzialResp));
-      dzialIIIHtml = await dzialResp.text();
-      console.log(`[EKW] Step 3: Status ${dzialResp.status}, rozmiar: ${dzialIIIHtml.length}`);
-    } else {
-      console.log('[EKW] Step 3: Brak bezpośredniego linku – parsowanie pełnej strony');
-      // Próbujemy wyciągnąć Dział III z pełnej treści
-      const sections = parseFullKWContent(searchResultHtml);
-      if (sections.dzialIII) {
-        dzialIIIHtml = sections.dzialIII;
-      }
-    }
-
-    // Step 4: Szukamy wydruku/treści – endpoint pokazWydruk
-    if (dzialIIIHtml.length < 500 && !dzialIIIUrl) {
-      console.log('[EKW] Step 4: Próba pobrania wydruku KW');
-      try {
-        const wydrukResp = await fetch(`${EKW_BASE}/pokazWydruk`, {
-          method: 'POST',
-          headers: {
-            ...HEADERS,
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Cookie': cookies,
-            'Referer': `${EKW_BASE}/wyszukiwanieKW`,
-          },
-          body: formBody.toString(),
-          redirect: 'follow',
-        });
-        if (wydrukResp.ok) {
-          const wydrukHtml = await wydrukResp.text();
-          console.log(`[EKW] Step 4: Wydruk pobrany, rozmiar: ${wydrukHtml.length}`);
-          const sections = parseFullKWContent(wydrukHtml);
-          if (sections.dzialIII) {
-            dzialIIIHtml = sections.dzialIII;
-          } else {
-            dzialIIIHtml = wydrukHtml;
-          }
-        }
-      } catch (e) {
-        console.log(`[EKW] Step 4: Błąd wydruku: ${e.message}`);
-      }
-    }
-
-    // Step 5: Parsowanie wpisów
-    console.log('[EKW] Step 5: Parsowanie wpisów Działu III');
-    result.dzialIII.rawHtml = dzialIIIHtml.substring(0, 100000); // limit
-    result.dzialIII.entries = parseDzialIII(dzialIIIHtml);
-    result.dzialIII.developerClaimsCount = result.dzialIII.entries.filter(e => e.isDeveloperClaim).length;
-    result.dzialIII.totalEntriesCount = result.dzialIII.entries.length;
-    result.success = true;
-
-    console.log(`[EKW] Gotowe: ${result.dzialIII.totalEntriesCount} wpisów, ${result.dzialIII.developerClaimsCount} roszczeń deweloperskich`);
-
+    result.error = 'CAPTCHA_REQUIRED';
+    return result;
   } catch (err) {
     result.error = err.message;
-    console.error(`[EKW] Błąd: ${err.message}`);
   }
-
   return result;
 }
 
-/**
- * Cache wyników – aby nie odpytywać serwera przy każdym requeście.
- */
 const kwCache = new Map();
-const KW_CACHE_TTL = 60 * 60 * 1000; // 1 godzina
+const KW_CACHE_TTL = 60 * 60 * 1000;
 
 async function fetchKWCached(kwNumber) {
   const cached = kwCache.get(kwNumber);
   if (cached && Date.now() - cached.ts < KW_CACHE_TTL) {
-    console.log(`[EKW Cache] Zwracam cached: ${kwNumber}`);
     return cached.data;
   }
-
   const data = await fetchKW(kwNumber);
   kwCache.set(kwNumber, { data, ts: Date.now() });
   return data;
 }
 
-/**
- * Czyści cache.
- */
 function clearKWCache(kwNumber) {
-  if (kwNumber) {
-    kwCache.delete(kwNumber);
-  } else {
-    kwCache.clear();
-  }
+  if (kwNumber) kwCache.delete(kwNumber);
+  else kwCache.clear();
 }
 
 module.exports = {
   parseKWNumber,
   parseDzialIII,
+  parseWzmianki,
   isDeveloperClaim,
-  parseKWInfo,
-  parseFullKWContent,
+  extractPeople,
   fetchKW,
   fetchKWCached,
   clearKWCache,

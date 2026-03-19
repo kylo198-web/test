@@ -87,9 +87,13 @@
       text-transform: uppercase; letter-spacing: 0.5px;
     }
     .entry-tag.dev { background: rgba(108,140,255,0.2); color: var(--accent); }
+    .entry-tag.wzmianka { background: rgba(78,205,196,0.2); color: var(--green); }
     .entry-tag.other { background: rgba(139,143,168,0.2); color: var(--text2); }
+    .entry-card.wzmianka { border-left: 4px solid var(--green); }
     .entry-text { font-size: 13px; line-height: 1.5; color: var(--text); word-break: break-word; }
     .entry-num { font-size: 11px; color: var(--text2); margin-top: 4px; }
+    .entry-apt { display: inline-block; background: var(--orange); color: #000; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; margin-left: 8px; }
+    .entry-people { font-size: 12px; color: var(--text2); margin-top: 4px; }
 
     .empty-state { text-align: center; padding: 40px 20px; color: var(--text2); }
     .empty-state p { font-size: 14px; margin-bottom: 8px; }
@@ -162,11 +166,11 @@
   <div class="stats" id="statsSection" style="display:none;">
     <div class="stat-card">
       <div class="stat-val accent" id="statDevClaims">0</div>
-      <div class="stat-label">Roszczenia deweloperskie</div>
+      <div class="stat-label">Roszczenia deweloperskie (wpisane)</div>
     </div>
     <div class="stat-card">
-      <div class="stat-val green" id="statTotal">0</div>
-      <div class="stat-label">Wszystkie wpisy Dz. III</div>
+      <div class="stat-val green" id="statWzmianki">0</div>
+      <div class="stat-label">Wzmianki (oczekujace wpisy)</div>
     </div>
     <div class="stat-card">
       <div class="stat-val orange" id="statNew">0</div>
@@ -341,9 +345,12 @@
     const totalCount = dz.totalEntriesCount || 0;
     const newEntries = data.newEntries || 0;
 
+    const wzmiankiCount = entries.filter(e => e.type === 'wzmianka' && e.isDeveloperClaim).length;
+    const wpisyDevCount = entries.filter(e => e.type === 'wpis' && e.isDeveloperClaim).length;
+
     $('statsSection').style.display = '';
-    $('statDevClaims').textContent = devCount;
-    $('statTotal').textContent = totalCount;
+    $('statDevClaims').textContent = wpisyDevCount;
+    $('statWzmianki').textContent = wzmiankiCount;
     $('statNew').innerHTML = newEntries > 0
       ? newEntries + '<span class="new-badge">NOWE!</span>'
       : '0';
@@ -360,12 +367,29 @@
     let html = '';
     entries.forEach(entry => {
       const isDev = entry.isDeveloperClaim;
-      html += '<div class="entry-card ' + (isDev ? 'dev' : 'other') + '">'
-        + '<span class="entry-tag ' + (isDev ? 'dev' : 'other') + '">'
-        + (isDev ? 'Umowa deweloperska' : 'Inny wpis') + '</span>'
-        + '<div class="entry-text">' + esc(entry.fullText) + '</div>'
-        + (entry.entryNumber ? '<div class="entry-num">Wpis nr: ' + esc(entry.entryNumber) + '</div>' : '')
-        + '</div>';
+      const isWzm = entry.type === 'wzmianka';
+      const cardClass = isWzm ? 'wzmianka' : (isDev ? 'dev' : 'other');
+      const tagClass = isWzm ? 'wzmianka' : (isDev ? 'dev' : 'other');
+      const tagText = isWzm ? 'Wzmianka (oczekujacy wpis)' : (isDev ? 'Umowa deweloperska' : 'Inny wpis');
+
+      html += '<div class="entry-card ' + cardClass + '">'
+        + '<span class="entry-tag ' + tagClass + '">' + tagText + '</span>';
+
+      if (entry.apartmentNumber) {
+        html += '<span class="entry-apt">Lokal nr ' + esc(entry.apartmentNumber) + '</span>';
+      }
+
+      html += '<div class="entry-text">' + esc(entry.fullText) + '</div>';
+
+      if (entry.entryNumber) {
+        html += '<div class="entry-num">' + esc(entry.entryNumber) + '</div>';
+      }
+
+      if (entry.people && entry.people.length > 0) {
+        html += '<div class="entry-people">Uprawnieni: ' + entry.people.map(p => esc(p.name)).join(', ') + '</div>';
+      }
+
+      html += '</div>';
     });
     $('entriesList').innerHTML = html;
   }
