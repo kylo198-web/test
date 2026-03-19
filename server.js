@@ -13,6 +13,7 @@ const fetch    = require('node-fetch');
 const xml2js   = require('xml2js');
 const proj4    = require('proj4');
 const path     = require('path');
+const ekw      = require('./ekw');
 
 // ── EPSG:2180 (PUWG 1992) definition ──────────────────────────
 proj4.defs('EPSG:2180',
@@ -382,13 +383,155 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// ── EKW – Księga Wieczysta Tracker ──────────────────────────────
+
+// Domyślny numer KW do śledzenia
+const DEFAULT_KW = 'KR1P/00291452/4';
+
+// Historia wpisów – persystencja w pamięci (w produkcji: baza danych)
+const kwHistory = [];
+
+/**
+ * GET /api/ekw
+ * Pobiera aktualny stan Działu III wybranej księgi wieczystej.
+ * Query params:
+ *   kw=KR1P/00291452/4  (opcjonalnie, domyślnie DEFAULT_KW)
+ *   refresh=1            (wymuś ponowne pobranie)
+ */
+app.get('/api/ekw', async (req, res) => {
+  try {
+    const kwNumber = req.query.kw || DEFAULT_KW;
+
+    if (req.query.refresh) {
+      ekw.clearKWCache(kwNumber);
+      console.log(`[EKW API] Cache wyczyszczony dla: ${kwNumber}`);
+    }
+
+    const data = await ekw.fetchKWCached(kwNumber);
+
+    // Zapisz w historii
+    kwHistory.push({
+      timestamp: new Date().toISOString(),
+      kwNumber,
+      developerClaimsCount: data.dzialIII?.developerClaimsCount || 0,
+      totalEntriesCount: data.dzialIII?.totalEntriesCount || 0,
+      success: data.success,
+      error: data.error,
+    });
+
+    // Ogranicz historię do ostatnich 100 wpisów
+    if (kwHistory.length > 100) kwHistory.splice(0, kwHistory.length - 100);
+
+    res.json({
+      ok: data.success,
+      kwNumber,
+      fetchedAt: data.fetchedAt,
+      error: data.error,
+      info: data.info,
+      dzialIII: {
+        entries: data.dzialIII?.entries || [],
+        developerClaimsCount: data.dzialIII?.developerClaimsCount || 0,
+        totalEntriesCount: data.dzialIII?.totalEntriesCount || 0,
+      },
+      note: data.error === 'CAPTCHA_REQUIRED'
+        ? 'Strona EKW wymaga CAPTCHA. Użyj trybu ręcznego poniżej.'
+        : 'Dane z przeglądarki Elektronicznych Ksiąg Wieczystych (przegladarka-ekw.ms.gov.pl)',
+    });
+  } catch (err) {
+    console.error('[EKW API] Error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/ekw/history
+ * Historia pobierań – do śledzenia zmian w czasie.
+ */
+app.get('/api/ekw/history', (req, res) => {
+  const kwNumber = req.query.kw || DEFAULT_KW;
+  const filtered = kwHistory.filter(h => h.kwNumber === kwNumber);
+  res.json({ ok: true, kwNumber, history: filtered });
+});
+
+/**
+ * POST /api/ekw/manual
+ * Ręczne dodanie danych Działu III (gdy automatyczne pobieranie nie działa z powodu CAPTCHA).
+ * Body: { kwNumber, entries: [...], htmlContent: "..." }
+ */
+app.use(express.json({ limit: '5mb' }));
+app.post('/api/ekw/manual', (req, res) => {
+  try {
+    const { kwNumber, htmlContent, entries } = req.body;
+    const kw = kwNumber || DEFAULT_KW;
+
+    let parsedEntries = entries || [];
+
+    if (htmlContent && parsedEntries.length === 0) {
+      // Parsujemy przesłany HTML
+      parsedEntries = ekw.parseDzialIII(htmlContent);
+    }
+
+    const developerClaimsCount = parsedEntries.filter(e => e.isDeveloperClaim).length;
+
+    const data = {
+      kwNumber: kw,
+      fetchedAt: new Date().toISOString(),
+      success: true,
+      error: null,
+      info: { numerKW: kw, source: 'manual' },
+      dzialIII: {
+        entries: parsedEntries,
+        developerClaimsCount,
+        totalEntriesCount: parsedEntries.length,
+      },
+    };
+
+    // Zapisz w historii
+    kwHistory.push({
+      timestamp: data.fetchedAt,
+      kwNumber: kw,
+      developerClaimsCount,
+      totalEntriesCount: parsedEntries.length,
+      success: true,
+      error: null,
+      source: 'manual',
+    });
+
+    res.json({
+      ok: true,
+      message: `Zapisano ${parsedEntries.length} wpisów (${developerClaimsCount} roszczeń deweloperskich)`,
+      data,
+    });
+  } catch (err) {
+    console.error('[EKW Manual] Error:', err);
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+/**
+ * GET /api/ekw/parse
+ * Parsuje numer KW i waliduje format.
+ */
+app.get('/api/ekw/parse', (req, res) => {
+  try {
+    const kwNumber = req.query.kw || DEFAULT_KW;
+    const parsed = ekw.parseKWNumber(kwNumber);
+    res.json({ ok: true, kwNumber, ...parsed });
+  } catch (err) {
+    res.status(400).json({ ok: false, error: err.message });
+  }
+});
+
 // ── Start ──────────────────────────────────────────────────────
 app.listen(PORT, () => {
-  console.log(`\n╔══════════════════════════════════════════════════╗`);
-  console.log(`║   RCN Proxy Server – Bieżanów-Prokocim, Kraków  ║`);
-  console.log(`║   http://localhost:${PORT}                          ║`);
-  console.log(`║   API: http://localhost:${PORT}/api/rcn              ║`);
-  console.log(`╚══════════════════════════════════════════════════╝\n`);
+  console.log(`\n╔══════════════════════════════════════════════════════╗`);
+  console.log(`║   RCN Proxy Server – Bieżanów-Prokocim, Kraków      ║`);
+  console.log(`║   http://localhost:${PORT}                              ║`);
+  console.log(`║   API: http://localhost:${PORT}/api/rcn                  ║`);
+  console.log(`║   KW Tracker: http://localhost:${PORT}/kw-tracker.html   ║`);
+  console.log(`║   API EKW: http://localhost:${PORT}/api/ekw              ║`);
+  console.log(`╚══════════════════════════════════════════════════════╝\n`);
   console.log(`ℹ  Dane RCN dostępne od: 31 lipca 2021 r.`);
-  console.log(`ℹ  Obszar: Bieżanów-Prokocim + ul. Walenroda + ul. Ściegiennego\n`);
+  console.log(`ℹ  Obszar: Bieżanów-Prokocim + ul. Walenroda + ul. Ściegiennego`);
+  console.log(`ℹ  KW Tracker: ${DEFAULT_KW}\n`);
 });
