@@ -103,6 +103,9 @@ app.get('/api/ekw', async (req, res) => {
 // ── API: Ręczne wklejenie HTML Działu III ─────────────────────
 app.post('/api/ekw/manual', (req, res) => {
   try {
+    if (!req.body) {
+      return res.status(400).json({ ok: false, error: 'Brak danych w zapytaniu' });
+    }
     const { kwNumber, htmlContent, entries } = req.body;
     if (!kwNumber) {
       return res.status(400).json({ ok: false, error: 'Podaj numer KW' });

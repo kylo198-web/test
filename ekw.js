@@ -115,7 +115,18 @@ function parseDzialIII(text) {
   }
 
   // 2. Parsuj wpisy - rozdzielamy po "Lp. N.---"
-  const entryBlocks = cleanText.split(/(?=Lp\.\s*\d+\.\s*---)/);
+  // Jesli tekst zaczyna sie od "Nr podstawy wpisu" bez "Lp. 1.---", dodajemy prefix
+  let textToParse = cleanText;
+  if (/^\s*Nr\s*podstawy\s*wpisu/i.test(textToParse) || /^\s*Numer\s*wpisu/i.test(textToParse)) {
+    textToParse = 'Lp. 1.---' + textToParse;
+  }
+  // Jesli wzmianki sa na poczatku, szukamy pierwszego "Nr podstawy" po wzmiankach
+  const firstNrPodstawy = textToParse.search(/(?<!Lp\.\s*\d+\.\s*---)Nr\s*podstawy\s*wpisu/i);
+  if (firstNrPodstawy > 0 && !textToParse.substring(Math.max(0, firstNrPodstawy - 20), firstNrPodstawy).includes('---')) {
+    textToParse = textToParse.substring(0, firstNrPodstawy) + 'Lp. 1.---' + textToParse.substring(firstNrPodstawy);
+  }
+
+  const entryBlocks = textToParse.split(/(?=Lp\.\s*\d+\.\s*---)/);
 
   for (const block of entryBlocks) {
     const lpMatch = block.match(/^Lp\.\s*(\d+)\.\s*---/);
@@ -135,9 +146,9 @@ function parseDzialIII(text) {
     const trescMatch = block.match(/Tre[sś][cć]\s*wpisu\s*([\s\S]*?)(?=Osoba\s*fizyczna|Wskazania\s*innej|Rodzaj\s*zmiany|$)/i);
     const trescWpisu = trescMatch ? trescMatch[1].trim() : '';
 
-    // Numer mieszkania
-    const aptMatch = trescWpisu.match(/(?:NUMER(?:EM)?|OZNACZON(?:EGO|YM)\s*ROBOCZO\s*NUMEREM)\s*(\d+)/i);
-    const apartmentNumber = aptMatch ? aptMatch[1] : null;
+    // Numer mieszkania - moze byc "64", "A.10", "B.29" itp.
+    const aptMatch = trescWpisu.match(/(?:NUMER(?:EM)?|OZNACZON(?:EGO|YM)\s*ROBOCZO\s*NUMEREM)\s*([A-Z]?\s*\.?\s*\d+)/i);
+    const apartmentNumber = aptMatch ? aptMatch[1].replace(/\s/g, '') : null;
 
     // Osoby
     const people = extractPeople(block);

@@ -320,7 +320,16 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kwNumber: kw, htmlContent: html }),
       });
-      const result = await resp.json();
+
+      const text = await resp.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (jsonErr) {
+        showStatus('Blad parsowania odpowiedzi serwera. Sprawdz czy serwer dziala.', 'error');
+        console.error('Response text:', text.substring(0, 500));
+        return;
+      }
 
       if (result.ok) {
         showStatus(result.message, 'ok');
@@ -328,10 +337,10 @@
         $('manualSection').classList.remove('visible');
         loadHistory(kw);
       } else {
-        showStatus('Blad: ' + result.error, 'error');
+        showStatus('Blad: ' + (result.error || 'Nieznany blad'), 'error');
       }
     } catch (err) {
-      showStatus('Blad: ' + err.message, 'error');
+      showStatus('Blad polaczenia: ' + err.message, 'error');
     } finally {
       $('btnManualParse').disabled = false;
       $('btnManualParse').textContent = 'Analizuj wklejony tekst';
